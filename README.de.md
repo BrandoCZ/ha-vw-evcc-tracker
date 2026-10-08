@@ -14,6 +14,14 @@ Kilometerstand, Akkustand, Verbrauch und Ladevorgänge eines **Elektroautos aus 
 - Ladevorgänge und Strecken lassen sich per **Telegram-Bot** (auch unterwegs, ohne VPN) oder per Dashboard-Knopf eintragen.
 - Dashboard mit drei Reitern (Jetzt · Auswertung · Protokolle) für Handy, Tablet und Desktop, im hellen und dunklen Modus.
 
+## Screenshots
+
+Alle Screenshots zeigen **erfundene Beispieldaten** aus einer Testinstallation (heller Modus; der letzte ist die Handy-Ansicht im dunklen Modus).
+
+| Now | Analysis | Logs | Handy (dunkel) |
+|---|---|---|---|
+| <img src="docs/images/dashboard-now.jpg" width="220"> | <img src="docs/images/dashboard-analysis.jpg" width="220"> | <img src="docs/images/dashboard-logs.jpg" width="220"> | <img src="docs/images/dashboard-now-mobile-dark.jpg" width="190"> |
+
 ## Funktionsweise
 
 ```

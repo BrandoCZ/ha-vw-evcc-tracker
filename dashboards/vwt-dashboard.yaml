@@ -161,7 +161,7 @@ views:
       icon: mdi:gauge
       color: blue
       icon_color: blue
-      primary: '{% set e = states(''input_number.vwt_drive_energy_30d'')|float(0) %}{% set km = states(''input_number.vwt_trip_km_30d'')|float(0) %}{% if km > 0 and e > 0 %}{{ ''%.1f'' | format(e / km * 100) }} kWh/100 km{% else %}–{% endif %}'
+      primary: '{% set e = states(''input_number.vwt_drive_energy_30d'')|float(0) %}{% set km = states(''input_number.vwt_trip_km_30d'')|float(0) %}{% if km > 0 and e > 0 %}{{ ''%.1f'' | format(e / km * 100) }} kWh/100km{% else %}–{% endif %}'
       secondary: Ø consumption
       tap_action:
         action: none
@@ -219,7 +219,7 @@ views:
       icon: mdi:map-marker-path
       color: blue
       icon_color: blue
-      primary: '{% set km = states(''input_number.vwt_last_trip_km'')|float(0) %}{% set v = states(''sensor.vwt_consumption_last_trip'')|float(0) %}{% if km > 0 %}{{ ''%.1f'' | format(km) }} km{% if v > 0 %} · {{ ''%.1f'' | format(v) }} kWh/100 km{% endif %}{% else %}No trip yet{% endif %}'
+      primary: '{% set km = states(''input_number.vwt_last_trip_km'')|float(0) %}{% set v = states(''sensor.vwt_consumption_last_trip'')|float(0) %}{% if km > 0 %}{{ ''%.1f'' | format(km) }} km{% if v > 0 %} · {{ ''%.1f'' | format(v) }} kWh/100km{% endif %}{% else %}No trip yet{% endif %}'
       secondary: Last trip
       tap_action:
         action: navigate
@@ -317,7 +317,7 @@ views:
       icon: mdi:gauge
       color: blue
       icon_color: blue
-      primary: '{% set v = states(''sensor.vwt_avg_consumption_month'')|float(0) %}{% if v > 0 %}{{ ''%.1f'' | format(v) }} kWh/100 km{% else %}–{% endif %}'
+      primary: '{% set v = states(''sensor.vwt_avg_consumption_month'')|float(0) %}{% if v > 0 %}{{ ''%.1f'' | format(v) }} kWh/100km{% else %}–{% endif %}'
       secondary: Ø consumption
       tap_action:
         action: none
@@ -395,7 +395,7 @@ views:
       icon: mdi:gauge
       color: blue
       icon_color: blue
-      primary: '{% set v = states(''sensor.vwt_avg_consumption_year'')|float(0) %}{% if v > 0 %}{{ ''%.1f'' | format(v) }} kWh/100 km{% else %}–{% endif %}'
+      primary: '{% set v = states(''sensor.vwt_avg_consumption_year'')|float(0) %}{% if v > 0 %}{{ ''%.1f'' | format(v) }} kWh/100km{% else %}–{% endif %}'
       secondary: Ø consumption
       tap_action:
         action: none
@@ -473,7 +473,7 @@ views:
       icon: mdi:gauge
       color: blue
       icon_color: blue
-      primary: '{% set v = states(''sensor.vwt_avg_consumption'')|float(0) %}{% if v > 0 %}{{ ''%.1f'' | format(v) }} kWh/100 km{% else %}–{% endif %}'
+      primary: '{% set v = states(''sensor.vwt_avg_consumption'')|float(0) %}{% if v > 0 %}{{ ''%.1f'' | format(v) }} kWh/100km{% else %}–{% endif %}'
       secondary: Ø consumption
       tap_action:
         action: none
@@ -677,7 +677,7 @@ views:
           height: 260
           showlegend: false
           yaxis:
-            title: kWh/100 km
+            title: kWh/100km
             rangemode: tozero
           paper_bgcolor: rgba(0,0,0,0)
           plot_bgcolor: rgba(0,0,0,0)
@@ -732,7 +732,7 @@ views:
         height: 260
         showlegend: false
         yaxis:
-          title: kWh/100 km
+          title: kWh/100km
           rangemode: tozero
         paper_bgcolor: rgba(0,0,0,0)
         plot_bgcolor: rgba(0,0,0,0)

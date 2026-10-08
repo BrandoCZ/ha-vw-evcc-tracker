@@ -14,6 +14,14 @@ Track the mileage, battery level, consumption and charging of a **Volkswagen Gro
 - Lets you enter charging sessions and trips by **Telegram bot** (also away from home, without VPN) or by dashboard buttons.
 - Comes with a three-tab dashboard (Now · Analysis · Logs) that works on phone, tablet and desktop, in light and dark mode.
 
+## Screenshots
+
+All screenshots show **invented example data** from a test installation (light mode; the last one is the phone view in dark mode).
+
+| Now | Analysis | Logs | Phone (dark) |
+|---|---|---|---|
+| <img src="docs/images/dashboard-now.jpg" width="220"> | <img src="docs/images/dashboard-analysis.jpg" width="220"> | <img src="docs/images/dashboard-logs.jpg" width="220"> | <img src="docs/images/dashboard-now-mobile-dark.jpg" width="190"> |
+
 ## How it works
 
 ```
