@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Question or idea (Fragen und Ideen)
+    url: https://github.com/BrandoCZ/ha-vw-evcc-tracker/discussions
+    about: Ask a question, share an idea or show your setup in Discussions. / Fragen, Ideen und Erfahrungen bitte in den Discussions.

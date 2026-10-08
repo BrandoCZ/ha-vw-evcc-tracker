@@ -56,6 +56,10 @@ Important: this setup has **no wallbox**. evcc is used only as a data source for
 - HACS cards for the dashboard: Mushroom, card-mod, ApexCharts card, Plotly graph card
 - Optional: a Telegram bot for entering data away from home
 
+## Feedback and contributions
+
+This is an example project, not a product, so there is **no support**. But feedback is very welcome, especially from other VW Group models and other Home Assistant setups: use [Discussions](https://github.com/BrandoCZ/ha-vw-evcc-tracker/discussions) for questions and ideas, [Issues](https://github.com/BrandoCZ/ha-vw-evcc-tracker/issues/new/choose) for problems, and see [CONTRIBUTING.md](CONTRIBUTING.md) if you want to change something.
+
 ## License
 
 [MIT](LICENSE). Volkswagen, evcc, Home Assistant and Telegram are trademarks of their respective owners; this project is not affiliated with any of them.

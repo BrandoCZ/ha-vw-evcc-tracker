@@ -1,0 +1,51 @@
+name: Something does not work (Fehler melden)
+description: Report a problem with the guides, packages or dashboard. / Etwas funktioniert nicht.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please read the [troubleshooting guide](https://github.com/BrandoCZ/ha-vw-evcc-tracker/blob/main/docs/en/05-troubleshooting.md) first (German: [Fehlersuche](https://github.com/BrandoCZ/ha-vw-evcc-tracker/blob/main/docs/de/05-troubleshooting.md)).
+        **Remove** e-mail addresses, VINs, chat IDs, tokens and passwords from everything you paste. / Bitte vor dem Einfügen E-Mail-Adressen, FIN, Chat-IDs, Tokens und Passwörter entfernen.
+        This is an example project without support; I answer when I can. / Beispielprojekt ohne Support, ich antworte, wenn es mir möglich ist.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where does it happen? / Wo tritt es auf?
+      options:
+        - VW EU Data Act portal
+        - evcc
+        - Telegram bot
+        - Home Assistant helpers / sensors
+        - Scripts
+        - Automations
+        - Dashboard
+        - Documentation (unclear or wrong)
+    validations:
+      required: true
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened and what did you expect? / Was ist passiert, was hast du erwartet?
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce / So kommt man dahin
+    validations:
+      required: false
+  - type: input
+    id: versions
+    attributes:
+      label: Versions (Home Assistant, evcc, car model) / Versionen
+      placeholder: "HA 2026.9, evcc 0.316, VW ID.7"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant log lines or screenshots (secrets removed) / Protokollzeilen oder Screenshots
+      render: text
+    validations:
+      required: false

@@ -56,6 +56,10 @@ Wichtig: Dieses Setup hat **keine Wallbox**. evcc dient nur als Datenquelle für
 - HACS-Karten für das Dashboard: Mushroom, card-mod, ApexCharts-Card, Plotly-Graph-Card
 - Optional: ein Telegram-Bot zum Erfassen unterwegs
 
+## Rückmeldungen und Mitmachen
+
+Das ist ein Beispielprojekt und kein Produkt, es gibt also **keinen Support**. Rückmeldungen sind aber sehr willkommen, besonders von anderen Modellen des VW-Konzerns und anderen Home-Assistant-Setups: [Discussions](https://github.com/BrandoCZ/ha-vw-evcc-tracker/discussions) für Fragen und Ideen, [Issues](https://github.com/BrandoCZ/ha-vw-evcc-tracker/issues/new/choose) für Probleme, und in [CONTRIBUTING.md](CONTRIBUTING.md) steht, wie man etwas ändern kann.
+
 ## Lizenz
 
 [MIT](LICENSE). Volkswagen, evcc, Home Assistant und Telegram sind Marken ihrer jeweiligen Inhaber; dieses Projekt steht mit keinem von ihnen in Verbindung.
