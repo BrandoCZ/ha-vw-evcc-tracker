@@ -1,0 +1,342 @@
+# ha-vw-evcc-tracker – helpers (package 1 of 3)
+#
+# Contains: input helpers, counter, adapter sensors for evcc, calculated
+# sensors and utility meters. No personal data, no secrets.
+#
+# >>> ONLY THING YOU MUST ADAPT: the three evcc entity IDs in the section
+# >>> "ADAPTER SENSORS" below. They depend on the TITLE of your evcc charge
+# >>> point (e.g. "ID.7 (virtual)" -> sensor.evcc_id_7_virtual_vehicle_soc).
+# >>> Everything else in this project reads only the sensors sensor.vwt_*.
+#
+# Install: see docs/en/04-home-assistant.md
+
+counter:
+  vwt_charge_count:
+    name: "VWT Charge count"
+    icon: mdi:counter
+    initial: 0
+    step: 1
+    restore: true
+
+input_number:
+  # --- settings ---------------------------------------------------------
+  vwt_battery_net_kwh:
+    name: "VWT Usable battery capacity (net)"
+    icon: mdi:car-battery
+    min: 40
+    max: 150
+    step: 0.5
+    unit_of_measurement: kWh
+    mode: box
+  vwt_favorite_price:
+    name: "VWT Favorite price per kWh"
+    icon: mdi:star
+    min: 0
+    max: 1.5
+    step: 0.01
+    unit_of_measurement: EUR/kWh
+    mode: box
+  # --- running totals (maintained by the scripts) ------------------------
+  vwt_total_charged:
+    name: "VWT Total charged"
+    icon: mdi:ev-station
+    min: 0
+    max: 1000000
+    step: 0.01
+    unit_of_measurement: kWh
+    mode: box
+  vwt_total_charged_priced:
+    name: "VWT Total charged (with price)"
+    icon: mdi:cash-check
+    min: 0
+    max: 1000000
+    step: 0.01
+    unit_of_measurement: kWh
+    mode: box
+  vwt_total_charge_cost:
+    name: "VWT Total charging cost"
+    icon: mdi:cash
+    min: 0
+    max: 1000000
+    step: 0.01
+    unit_of_measurement: EUR
+    mode: box
+  vwt_total_drive_energy:
+    name: "VWT Total driving energy"
+    icon: mdi:lightning-bolt
+    min: 0
+    max: 1000000
+    step: 0.01
+    unit_of_measurement: kWh
+    mode: box
+  vwt_total_trip_km:
+    name: "VWT Total trip km"
+    icon: mdi:map-marker-distance
+    min: 0
+    max: 10000000
+    step: 0.1
+    unit_of_measurement: km
+    mode: box
+  # --- last trip / reference values for the automatic trip detection -----
+  vwt_last_trip_km:
+    name: "VWT Last trip km"
+    icon: mdi:map-marker-path
+    min: 0
+    max: 5000
+    step: 0.1
+    unit_of_measurement: km
+    mode: box
+  vwt_last_trip_consumption:
+    name: "VWT Last trip consumption"
+    icon: mdi:gauge
+    min: 0
+    max: 100
+    step: 0.1
+    unit_of_measurement: kWh/100km
+    mode: box
+  vwt_last_odometer:
+    name: "VWT Last odometer"
+    icon: mdi:counter
+    min: 0
+    max: 2000000
+    step: 1
+    unit_of_measurement: km
+    mode: box
+  vwt_last_soc:
+    name: "VWT Last SoC"
+    icon: mdi:battery-50
+    min: 0
+    max: 100
+    step: 1
+    unit_of_measurement: "%"
+    mode: box
+  # --- 30-day values (calculated by an automation) ------------------------
+  vwt_km_30d:
+    name: "VWT km 30 days"
+    icon: mdi:road-variant
+    min: 0
+    max: 100000
+    step: 0.1
+    unit_of_measurement: km
+    mode: box
+  vwt_charged_30d:
+    name: "VWT Charged 30 days"
+    icon: mdi:ev-station
+    min: 0
+    max: 100000
+    step: 0.01
+    unit_of_measurement: kWh
+    mode: box
+  vwt_drive_energy_30d:
+    name: "VWT Driving energy 30 days"
+    icon: mdi:lightning-bolt
+    min: 0
+    max: 100000
+    step: 0.01
+    unit_of_measurement: kWh
+    mode: box
+  vwt_trip_km_30d:
+    name: "VWT Trip km 30 days"
+    icon: mdi:map-marker-distance
+    min: 0
+    max: 100000
+    step: 0.1
+    unit_of_measurement: km
+    mode: box
+
+input_select:
+  vwt_select_entry:
+    name: "VWT Select entry"
+    icon: mdi:playlist-edit
+    # the options are filled by the automation "VWT Update correction list"
+    options:
+      - "– Select entry –"
+
+input_text:
+  vwt_last_charge:
+    name: "VWT Last charging session"
+    icon: mdi:ev-station
+    min: 0
+    max: 255
+    mode: text
+  vwt_telegram_dialog:
+    name: "VWT Telegram dialog"
+    icon: mdi:message-processing
+    min: 0
+    max: 255
+    mode: text
+  # entity ID of your Telegram notify entity, e.g. notify.mybot_telegram_me
+  vwt_notify_entity:
+    name: "VWT Telegram notify entity"
+    icon: mdi:send
+    min: 0
+    max: 255
+    mode: text
+
+template:
+  - sensor:
+      # ===== ADAPTER SENSORS – adapt the three evcc entity IDs ==========
+      - name: "VWT SoC"
+        unique_id: vwt_soc
+        unit_of_measurement: "%"
+        device_class: battery
+        state_class: measurement
+        state: "{{ states('sensor.evcc_id_7_virtual_vehicle_soc') | float(0) }}"
+        availability: "{{ states('sensor.evcc_id_7_virtual_vehicle_soc') not in ['unknown', 'unavailable'] }}"
+      - name: "VWT Range"
+        unique_id: vwt_range
+        unit_of_measurement: km
+        device_class: distance
+        state_class: measurement
+        state: "{{ states('sensor.evcc_id_7_virtual_vehicle_range') | float(0) }}"
+        availability: "{{ states('sensor.evcc_id_7_virtual_vehicle_range') not in ['unknown', 'unavailable'] }}"
+      # evcc can briefly report 0 km after a restart; those readings are ignored
+      - name: "VWT Odometer"
+        unique_id: vwt_odometer
+        unit_of_measurement: km
+        device_class: distance
+        state_class: total_increasing
+        state: "{{ states('sensor.evcc_id_7_virtual_vehicle_odometer') | float(0) }}"
+        availability: "{{ states('sensor.evcc_id_7_virtual_vehicle_odometer') | float(0) > 0 }}"
+      # ===== totals as sensors (needed by the utility meters) ===========
+      - name: "VWT Charged total"
+        unique_id: vwt_charged_total
+        unit_of_measurement: kWh
+        device_class: energy
+        state_class: total
+        state: "{{ states('input_number.vwt_total_charged') | float(0) }}"
+      - name: "VWT Charged priced total"
+        unique_id: vwt_charged_priced_total
+        unit_of_measurement: kWh
+        device_class: energy
+        state_class: total
+        state: "{{ states('input_number.vwt_total_charged_priced') | float(0) }}"
+      - name: "VWT Charge cost total"
+        unique_id: vwt_charge_cost_total
+        unit_of_measurement: EUR
+        device_class: monetary
+        state_class: total
+        state: "{{ states('input_number.vwt_total_charge_cost') | float(0) }}"
+      - name: "VWT Drive energy total"
+        unique_id: vwt_drive_energy_total
+        unit_of_measurement: kWh
+        device_class: energy
+        state_class: total
+        state: "{{ states('input_number.vwt_total_drive_energy') | float(0) }}"
+      - name: "VWT Trip km total"
+        unique_id: vwt_trip_km_total
+        unit_of_measurement: km
+        device_class: distance
+        state_class: total
+        state: "{{ states('input_number.vwt_total_trip_km') | float(0) }}"
+      # ===== calculated values ============================================
+      - name: "VWT Avg price"
+        unique_id: vwt_avg_price
+        unit_of_measurement: EUR/kWh
+        state_class: measurement
+        state: >
+          {% set k = states('input_number.vwt_total_charged_priced') | float(0) %}
+          {% set p = states('input_number.vwt_total_charge_cost') | float(0) %}
+          {{ (p / k) | round(3) if k > 0 else 0 }}
+      - name: "VWT Avg consumption"
+        unique_id: vwt_avg_consumption
+        unit_of_measurement: kWh/100km
+        state_class: measurement
+        state: >
+          {% set e = states('input_number.vwt_total_drive_energy') | float(0) %}
+          {% set km = states('input_number.vwt_total_trip_km') | float(0) %}
+          {{ (e / km * 100) | round(1) if km > 0 else 0 }}
+      - name: "VWT Consumption last trip"
+        unique_id: vwt_consumption_last_trip
+        unit_of_measurement: kWh/100km
+        state_class: measurement
+        state: "{{ states('input_number.vwt_last_trip_consumption') | float(0) }}"
+      - name: "VWT Avg consumption month"
+        unique_id: vwt_avg_consumption_month
+        unit_of_measurement: kWh/100km
+        state_class: measurement
+        state: >
+          {% set e = states('sensor.vwt_drive_energy_month') | float(0) %}
+          {% set km = states('sensor.vwt_trip_km_month') | float(0) %}
+          {{ (e / km * 100) | round(1) if km > 0 else 0 }}
+      - name: "VWT Avg consumption year"
+        unique_id: vwt_avg_consumption_year
+        unit_of_measurement: kWh/100km
+        state_class: measurement
+        state: >
+          {% set e = states('sensor.vwt_drive_energy_year') | float(0) %}
+          {% set km = states('sensor.vwt_trip_km_year') | float(0) %}
+          {{ (e / km * 100) | round(1) if km > 0 else 0 }}
+      - name: "VWT Avg price month"
+        unique_id: vwt_avg_price_month
+        unit_of_measurement: EUR/kWh
+        state_class: measurement
+        state: >
+          {% set k = states('sensor.vwt_charged_priced_month') | float(0) %}
+          {% set p = states('sensor.vwt_charge_cost_month') | float(0) %}
+          {{ (p / k) | round(3) if k > 0 else 0 }}
+      - name: "VWT Cost per 100km"
+        unique_id: vwt_cost_per_100km
+        unit_of_measurement: EUR/100km
+        state_class: measurement
+        state: >
+          {{ (states('sensor.vwt_avg_price') | float(0) * states('sensor.vwt_avg_consumption') | float(0)) | round(2) }}
+      # human-readable age of the last data update from the car
+      - name: "VWT Last update"
+        unique_id: vwt_last_update
+        state: >
+          {% set a = states.sensor.vwt_soc %}
+          {% set b = states.sensor.vwt_odometer %}
+          {% if a is none or b is none %}unknown{% else %}
+          {% set lc = [a.last_changed, b.last_changed] | max %}
+          {% set m = ((now() - lc).total_seconds() / 60) | int %}
+          {% if m < 1 %}just now{% elif m < 60 %}{{ m }} min ago{% elif m < 1440 %}{{ (m / 60) | int }} h ago{% else %}{{ (m / 1440) | int }} d ago{% endif %}
+          {% endif %}
+
+utility_meter:
+  vwt_km_month:
+    name: "VWT km month"
+    source: sensor.vwt_odometer
+    cycle: monthly
+    periodically_resetting: true
+  vwt_km_year:
+    name: "VWT km year"
+    source: sensor.vwt_odometer
+    cycle: yearly
+    periodically_resetting: true
+  vwt_charged_month:
+    name: "VWT Charged month"
+    source: sensor.vwt_charged_total
+    cycle: monthly
+  vwt_charged_year:
+    name: "VWT Charged year"
+    source: sensor.vwt_charged_total
+    cycle: yearly
+  vwt_charge_cost_month:
+    name: "VWT Charge cost month"
+    source: sensor.vwt_charge_cost_total
+    cycle: monthly
+  vwt_charge_cost_year:
+    name: "VWT Charge cost year"
+    source: sensor.vwt_charge_cost_total
+    cycle: yearly
+  vwt_drive_energy_month:
+    name: "VWT Drive energy month"
+    source: sensor.vwt_drive_energy_total
+    cycle: monthly
+  vwt_drive_energy_year:
+    name: "VWT Drive energy year"
+    source: sensor.vwt_drive_energy_total
+    cycle: yearly
+  vwt_trip_km_month:
+    name: "VWT Trip km month"
+    source: sensor.vwt_trip_km_total
+    cycle: monthly
+  vwt_trip_km_year:
+    name: "VWT Trip km year"
+    source: sensor.vwt_trip_km_total
+    cycle: yearly
+  vwt_charged_priced_month:
+    name: "VWT Charged priced month"
+    source: sensor.vwt_charged_priced_total
+    cycle: monthly

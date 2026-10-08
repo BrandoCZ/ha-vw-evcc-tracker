@@ -1,0 +1,948 @@
+# ha-vw-evcc-tracker – dashboard
+#
+# Install: Settings -> Dashboards -> Add dashboard -> (URL: vwt-dashboard) -> open it ->
+# three dots -> "Edit dashboard" -> three dots -> "Raw configuration editor" -> paste this file.
+# Requires the HACS cards: Mushroom, card-mod, ApexCharts card, Plotly graph card.
+# Requires the sensors/helpers from packages/vwt_helpers.yaml (sensor.vwt_*).
+#
+views:
+- title: Now
+  path: now
+  icon: mdi:car-electric
+  type: sections
+  max_columns: 2
+  sections:
+  - type: grid
+    column_span: 2
+    cards:
+    - type: heading
+      heading: EV
+      icon: mdi:car-electric
+      heading_style: title
+      badges:
+      - type: button
+        text: Charging
+        icon: mdi:ev-station
+        color: green
+        tap_action:
+          action: more-info
+          entity: script.vwt_record_charge
+      - type: button
+        text: Trip
+        icon: mdi:routes
+        color: blue
+        tap_action:
+          action: more-info
+          entity: script.vwt_record_trip
+      - type: entity
+        entity: input_number.vwt_battery_net_kwh
+        show_state: true
+        show_icon: true
+        icon: mdi:car-battery
+        color: grey
+        tap_action:
+          action: more-info
+  - type: grid
+    cards:
+    - type: heading
+      heading: Vehicle
+      icon: mdi:car-electric
+      heading_style: title
+      badges:
+      - type: entity
+        entity: sensor.vwt_last_update
+        show_state: true
+        show_icon: true
+        icon: mdi:clock-outline
+        color: grey
+        tap_action:
+          action: none
+    - type: custom:apexcharts-card
+      chart_type: radialBar
+      header:
+        show: false
+      series:
+      - entity: sensor.vwt_soc
+        name: Battery
+        color: '#00B0F0'
+      apex_config:
+        chart:
+          height: 288
+        plotOptions:
+          radialBar:
+            startAngle: -135
+            endAngle: 135
+            hollow:
+              size: 68%
+            track:
+              background: rgba(128,128,128,0.2)
+              strokeWidth: 100%
+            dataLabels:
+              name:
+                show: true
+                offsetY: 30
+                fontSize: 14px
+                color: '#8b95a5'
+              value:
+                show: true
+                offsetY: -10
+                fontSize: 46px
+                fontWeight: 600
+                color: '#888888'
+        fill:
+          type: gradient
+          gradient:
+            shade: dark
+            type: horizontal
+            gradientToColors:
+            - '#00E5A0'
+            stops:
+            - 0
+            - 100
+        stroke:
+          lineCap: round
+        legend:
+          show: false
+      grid_options:
+        columns: 12
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+          .apexcharts-datalabel-value {
+            fill: var(--primary-text-color) !important;
+          }
+          .apexcharts-datalabel-label {
+            fill: var(--secondary-text-color) !important;
+          }
+    - type: custom:mushroom-chips-card
+      alignment: center
+      chips:
+      - type: template
+        icon: mdi:map-marker-distance
+        icon_color: blue
+        content: '{{ states(''sensor.vwt_range'') }} km'
+      - type: template
+        icon: mdi:lightning-bolt
+        icon_color: green
+        content: '{{ ((states(''sensor.vwt_soc'')|float(0)) * (states(''input_number.vwt_battery_net_kwh'')|float(86)) / 100) | round(1) | string }} kWh'
+      - type: template
+        icon: mdi:counter
+        icon_color: grey
+        content: '{{ ''{:,.0f}''.format(states(''sensor.vwt_odometer'')|float(0)) }} km'
+  - type: grid
+    cards:
+    - type: heading
+      heading: Last 30 days
+      icon: mdi:calendar-range
+      heading_style: title
+    - type: custom:mushroom-template-card
+      icon: mdi:road-variant
+      color: blue
+      icon_color: blue
+      primary: '{{ ''{:,.0f}''.format(states(''input_number.vwt_km_30d'')|float(0)) }} km'
+      secondary: Driven
+      tap_action:
+        action: none
+      grid_options:
+        columns: 6
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+    - type: custom:mushroom-template-card
+      icon: mdi:gauge
+      color: blue
+      icon_color: blue
+      primary: '{% set e = states(''input_number.vwt_drive_energy_30d'')|float(0) %}{% set km = states(''input_number.vwt_trip_km_30d'')|float(0) %}{% if km > 0 and e > 0 %}{{ ''%.1f'' | format(e / km * 100) }} kWh/100 km{% else %}–{% endif %}'
+      secondary: Ø consumption
+      tap_action:
+        action: none
+      grid_options:
+        columns: 6
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+    - type: custom:mushroom-template-card
+      icon: mdi:ev-station
+      color: green
+      icon_color: green
+      primary: '{{ ''%.1f'' | format(states(''input_number.vwt_charged_30d'')|float(0)) }} kWh'
+      secondary: Charged
+      tap_action:
+        action: none
+      grid_options:
+        columns: 6
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+    - type: custom:mushroom-template-card
+      icon: mdi:calendar-today
+      color: blue
+      icon_color: blue
+      primary: '{{ ''{:,.0f}''.format(states(''input_number.vwt_km_30d'')|float(0) / 30) }} km'
+      secondary: Ø per day
+      tap_action:
+        action: none
+      grid_options:
+        columns: 6
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+    - type: heading
+      heading: Recent
+      icon: mdi:history
+      heading_style: title
+    - type: custom:mushroom-template-card
+      icon: mdi:map-marker-path
+      color: blue
+      icon_color: blue
+      primary: '{% set km = states(''input_number.vwt_last_trip_km'')|float(0) %}{% set v = states(''sensor.vwt_consumption_last_trip'')|float(0) %}{% if km > 0 %}{{ ''%.1f'' | format(km) }} km{% if v > 0 %} · {{ ''%.1f'' | format(v) }} kWh/100 km{% endif %}{% else %}No trip yet{% endif %}'
+      secondary: Last trip
+      tap_action:
+        action: navigate
+        navigation_path: /vwt-dashboard/logs
+      grid_options:
+        columns: 12
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+    - type: custom:mushroom-template-card
+      icon: mdi:ev-station
+      color: green
+      icon_color: green
+      primary: '{{ states(''input_text.vwt_last_charge'') }}'
+      secondary: Last charging session
+      tap_action:
+        action: navigate
+        navigation_path: /vwt-dashboard/logs
+      grid_options:
+        columns: 12
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+- title: Analysis
+  path: analysis
+  icon: mdi:chart-bar
+  type: sections
+  max_columns: 3
+  sections:
+  - type: grid
+    column_span: 3
+    cards:
+    - type: heading
+      heading: Analysis
+      icon: mdi:chart-bar
+      heading_style: title
+      badges:
+      - type: button
+        text: Charging
+        icon: mdi:ev-station
+        color: green
+        tap_action:
+          action: more-info
+          entity: script.vwt_record_charge
+      - type: button
+        text: Trip
+        icon: mdi:routes
+        color: blue
+        tap_action:
+          action: more-info
+          entity: script.vwt_record_trip
+      - type: entity
+        entity: input_number.vwt_battery_net_kwh
+        show_state: true
+        show_icon: true
+        icon: mdi:car-battery
+        color: grey
+        tap_action:
+          action: more-info
+  - type: grid
+    cards:
+    - type: heading
+      heading: This month
+      icon: mdi:calendar-month
+      heading_style: title
+    - type: custom:mushroom-template-card
+      icon: mdi:road-variant
+      color: blue
+      icon_color: blue
+      primary: '{{ ''{:,.0f}''.format(states(''sensor.vwt_km_month'')|float(0)) }} km'
+      secondary: '{% set v = state_attr(''sensor.vwt_km_month'', ''last_period'') | float(0) %}Driven · {% if v > 0 %}Last month {{ ''{:,.0f}''.format(v) }} km{% else %}Last month –{% endif %}'
+      tap_action:
+        action: none
+      grid_options:
+        columns: 6
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+    - type: custom:mushroom-template-card
+      icon: mdi:gauge
+      color: blue
+      icon_color: blue
+      primary: '{% set v = states(''sensor.vwt_avg_consumption_month'')|float(0) %}{% if v > 0 %}{{ ''%.1f'' | format(v) }} kWh/100 km{% else %}–{% endif %}'
+      secondary: Ø consumption
+      tap_action:
+        action: none
+      grid_options:
+        columns: 6
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+    - type: custom:mushroom-template-card
+      icon: mdi:ev-station
+      color: green
+      icon_color: green
+      primary: '{{ ''%.1f'' | format(states(''sensor.vwt_charged_month'')|float(0)) }} kWh'
+      secondary: '{% set v = state_attr(''sensor.vwt_charged_month'', ''last_period'') | float(0) %}Charged · {% if v > 0 %}Last month {{ ''{:,.0f}''.format(v) }} kWh{% else %}Last month –{% endif %}'
+      tap_action:
+        action: none
+      grid_options:
+        columns: 6
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+    - type: custom:mushroom-template-card
+      icon: mdi:cash
+      color: green
+      icon_color: green
+      primary: '{{ ''%.2f'' | format(states(''sensor.vwt_charge_cost_month'')|float(0)) }} €'
+      secondary: Charging cost · Ø {{ '%.2f' | format(states('sensor.vwt_avg_price_month')|float(0)) }} €/kWh
+      tap_action:
+        action: none
+      grid_options:
+        columns: 6
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+  - type: grid
+    cards:
+    - type: heading
+      heading: This year
+      icon: mdi:calendar
+      heading_style: title
+    - type: custom:mushroom-template-card
+      icon: mdi:road-variant
+      color: blue
+      icon_color: blue
+      primary: '{{ ''{:,.0f}''.format(states(''sensor.vwt_km_year'')|float(0)) }} km'
+      secondary: '{% set v = state_attr(''sensor.vwt_km_year'', ''last_period'') | float(0) %}Driven · {% if v > 0 %}Last year {{ ''{:,.0f}''.format(v) }} km{% else %}Last year –{% endif %}'
+      tap_action:
+        action: none
+      grid_options:
+        columns: 6
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+    - type: custom:mushroom-template-card
+      icon: mdi:gauge
+      color: blue
+      icon_color: blue
+      primary: '{% set v = states(''sensor.vwt_avg_consumption_year'')|float(0) %}{% if v > 0 %}{{ ''%.1f'' | format(v) }} kWh/100 km{% else %}–{% endif %}'
+      secondary: Ø consumption
+      tap_action:
+        action: none
+      grid_options:
+        columns: 6
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+    - type: custom:mushroom-template-card
+      icon: mdi:ev-station
+      color: green
+      icon_color: green
+      primary: '{{ ''{:,.0f}''.format(states(''sensor.vwt_charged_year'')|float(0)) }} kWh'
+      secondary: '{% set v = state_attr(''sensor.vwt_charged_year'', ''last_period'') | float(0) %}Charged · {% if v > 0 %}Last year {{ ''{:,.0f}''.format(v) }} kWh{% else %}Last year –{% endif %}'
+      tap_action:
+        action: none
+      grid_options:
+        columns: 6
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+    - type: custom:mushroom-template-card
+      icon: mdi:cash
+      color: green
+      icon_color: green
+      primary: '{{ ''%.2f'' | format(states(''sensor.vwt_charge_cost_year'')|float(0)) }} €'
+      secondary: Charging cost
+      tap_action:
+        action: none
+      grid_options:
+        columns: 6
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+  - type: grid
+    cards:
+    - type: heading
+      heading: Total
+      icon: mdi:sigma
+      heading_style: title
+    - type: custom:mushroom-template-card
+      icon: mdi:counter
+      color: blue
+      icon_color: blue
+      primary: '{{ ''{:,.0f}''.format(states(''sensor.vwt_odometer'')|float(0)) }} km'
+      secondary: Odometer
+      tap_action:
+        action: none
+      grid_options:
+        columns: 6
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+    - type: custom:mushroom-template-card
+      icon: mdi:gauge
+      color: blue
+      icon_color: blue
+      primary: '{% set v = states(''sensor.vwt_avg_consumption'')|float(0) %}{% if v > 0 %}{{ ''%.1f'' | format(v) }} kWh/100 km{% else %}–{% endif %}'
+      secondary: Ø consumption
+      tap_action:
+        action: none
+      grid_options:
+        columns: 6
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+    - type: custom:mushroom-template-card
+      icon: mdi:ev-station
+      color: green
+      icon_color: green
+      primary: '{{ ''{:,.0f}''.format(states(''sensor.vwt_charged_total'')|float(0)) }} kWh'
+      secondary: Charged · {{ states('counter.vwt_charge_count') }} sessions
+      tap_action:
+        action: none
+      grid_options:
+        columns: 6
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+    - type: custom:mushroom-template-card
+      icon: mdi:cash
+      color: green
+      icon_color: green
+      primary: '{{ ''%.2f'' | format(states(''sensor.vwt_charge_cost_total'')|float(0)) }} €'
+      secondary: Charging cost · Ø {{ '%.2f' | format(states('sensor.vwt_avg_price')|float(0)) }} €/kWh
+      tap_action:
+        action: none
+      grid_options:
+        columns: 6
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+  - type: grid
+    column_span: 3
+    cards:
+    - type: heading
+      heading: Monthly history
+      icon: mdi:chart-bar
+      heading_style: title
+    - type: grid
+      columns: 2
+      square: false
+      cards:
+      - type: statistics-graph
+        title: Driven km per month
+        chart_type: bar
+        period: month
+        days_to_show: 365
+        stat_types:
+        - change
+        hide_legend: true
+        entities:
+        - entity: sensor.vwt_odometer
+          name: Driven
+          color: '#00B0F0'
+        card_mod:
+          style: |-
+            ha-card {
+              border-radius: 16px;
+              border: 1px solid rgba(128,128,128,0.2);
+              box-shadow: none;
+            }
+      - type: statistics-graph
+        title: Charged kWh per month
+        chart_type: bar
+        period: month
+        days_to_show: 365
+        stat_types:
+        - change
+        hide_legend: true
+        entities:
+        - entity: sensor.vwt_charged_total
+          name: Charged
+          color: '#2E9E5B'
+        card_mod:
+          style: |-
+            ha-card {
+              border-radius: 16px;
+              border: 1px solid rgba(128,128,128,0.2);
+              box-shadow: none;
+            }
+      grid_options:
+        columns: full
+      visibility:
+      - condition: screen
+        media_query: '(min-width: 768px)'
+    - type: statistics-graph
+      title: Driven km per month
+      chart_type: bar
+      period: month
+      days_to_show: 365
+      stat_types:
+      - change
+      hide_legend: true
+      entities:
+      - entity: sensor.vwt_odometer
+        name: Driven
+        color: '#00B0F0'
+      grid_options:
+        columns: full
+        rows: auto
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+      visibility:
+      - condition: screen
+        media_query: '(max-width: 767px)'
+    - type: statistics-graph
+      title: Charged kWh per month
+      chart_type: bar
+      period: month
+      days_to_show: 365
+      stat_types:
+      - change
+      hide_legend: true
+      entities:
+      - entity: sensor.vwt_charged_total
+        name: Charged
+        color: '#2E9E5B'
+      grid_options:
+        columns: full
+        rows: auto
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+      visibility:
+      - condition: screen
+        media_query: '(max-width: 767px)'
+  - type: grid
+    column_span: 3
+    cards:
+    - type: heading
+      heading: Consumption
+      icon: mdi:gauge
+      heading_style: title
+    - type: custom:mushroom-template-card
+      icon: mdi:information-outline
+      color: grey
+      icon_color: grey
+      primary: No consumption data yet
+      secondary: Appears after the first trip recorded automatically or manually
+      tap_action:
+        action: none
+      grid_options:
+        columns: full
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+      visibility:
+      - condition: numeric_state
+        entity: sensor.vwt_consumption_last_trip
+        below: 0.1
+    - type: grid
+      columns: 2
+      square: false
+      cards:
+      - type: custom:plotly-graph
+        title: Consumption per trip · 90 days
+        hours_to_show: 2160
+        refresh_interval: auto
+        entities:
+        - entity: sensor.vwt_consumption_last_trip
+          name: Consumption
+          mode: markers
+          marker:
+            size: 9
+            color: '#00B0F0'
+          filters:
+          - filter: i>0
+        layout:
+          height: 260
+          showlegend: false
+          yaxis:
+            title: kWh/100 km
+            rangemode: tozero
+          paper_bgcolor: rgba(0,0,0,0)
+          plot_bgcolor: rgba(0,0,0,0)
+        card_mod:
+          style: |-
+            ha-card {
+              border-radius: 16px;
+              border: 1px solid rgba(128,128,128,0.2);
+              box-shadow: none;
+            }
+      - type: statistics-graph
+        title: Ø consumption per month
+        chart_type: line
+        period: month
+        days_to_show: 365
+        stat_types:
+        - mean
+        hide_legend: true
+        entities:
+        - entity: sensor.vwt_avg_consumption
+          name: Ø consumption
+          color: '#00B0F0'
+        card_mod:
+          style: |-
+            ha-card {
+              border-radius: 16px;
+              border: 1px solid rgba(128,128,128,0.2);
+              box-shadow: none;
+            }
+      grid_options:
+        columns: full
+      visibility:
+      - condition: screen
+        media_query: '(min-width: 768px)'
+      - condition: numeric_state
+        entity: sensor.vwt_consumption_last_trip
+        above: 0
+    - type: custom:plotly-graph
+      title: Consumption per trip · 90 days
+      hours_to_show: 2160
+      refresh_interval: auto
+      entities:
+      - entity: sensor.vwt_consumption_last_trip
+        name: Consumption
+        mode: markers
+        marker:
+          size: 9
+          color: '#00B0F0'
+        filters:
+        - filter: i>0
+      layout:
+        height: 260
+        showlegend: false
+        yaxis:
+          title: kWh/100 km
+          rangemode: tozero
+        paper_bgcolor: rgba(0,0,0,0)
+        plot_bgcolor: rgba(0,0,0,0)
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+      grid_options:
+        columns: full
+        rows: auto
+      visibility:
+      - condition: screen
+        media_query: '(max-width: 767px)'
+      - condition: numeric_state
+        entity: sensor.vwt_consumption_last_trip
+        above: 0
+    - type: statistics-graph
+      title: Ø consumption per month
+      chart_type: line
+      period: month
+      days_to_show: 365
+      stat_types:
+      - mean
+      hide_legend: true
+      entities:
+      - entity: sensor.vwt_avg_consumption
+        name: Ø consumption
+        color: '#00B0F0'
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+      grid_options:
+        columns: full
+        rows: auto
+      visibility:
+      - condition: screen
+        media_query: '(max-width: 767px)'
+      - condition: numeric_state
+        entity: sensor.vwt_consumption_last_trip
+        above: 0
+- title: Logs
+  path: logs
+  icon: mdi:book-open-variant
+  type: sections
+  max_columns: 2
+  sections:
+  - type: grid
+    column_span: 2
+    cards:
+    - type: heading
+      heading: Logs
+      icon: mdi:book-open-variant
+      heading_style: title
+      badges:
+      - type: button
+        text: Charging
+        icon: mdi:ev-station
+        color: green
+        tap_action:
+          action: more-info
+          entity: script.vwt_record_charge
+      - type: button
+        text: Trip
+        icon: mdi:routes
+        color: blue
+        tap_action:
+          action: more-info
+          entity: script.vwt_record_trip
+      - type: entity
+        entity: input_number.vwt_battery_net_kwh
+        show_state: true
+        show_icon: true
+        icon: mdi:car-battery
+        color: grey
+        tap_action:
+          action: more-info
+    - type: tile
+      entity: input_select.vwt_select_entry
+      name: Correct entry
+      icon: mdi:playlist-edit
+      color: red
+      features:
+      - type: select-options
+      features_position: inline
+      tap_action:
+        action: none
+      grid_options:
+        columns: 12
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+    - type: custom:mushroom-template-card
+      icon: mdi:delete-restore
+      color: red
+      icon_color: red
+      primary: Delete
+      secondary: recalculate totals
+      tap_action:
+        action: perform-action
+        perform_action: script.vwt_delete_entry
+        confirmation:
+          text: Delete the selected entry and subtract its values from the totals?
+      grid_options:
+        columns: 12
+        rows: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+  - type: grid
+    cards:
+    - type: heading
+      heading: Trip log
+      icon: mdi:routes
+      heading_style: title
+    - type: todo-list
+      entity: todo.vwt_trip_log
+      hide_create: true
+      hide_completed: true
+      display_order: duedate_desc
+      grid_options:
+        columns: full
+        rows: auto
+      card_mod:
+        style:
+          .: |-
+            ha-card {
+              border-radius: 16px;
+              border: 1px solid rgba(128,128,128,0.2);
+              box-shadow: none;
+              max-height: 75vh;
+              overflow-y: auto;
+            }
+            .due { display: none !important; }
+            ha-check-list-item { pointer-events: none !important; }
+            .header { display: none !important; }
+          ha-check-list-item $: |-
+            ha-checkbox { display: none !important; }
+            .mdc-deprecated-list-item__text { white-space: normal !important; }
+      visibility:
+      - condition: numeric_state
+        entity: todo.vwt_trip_log
+        above: 0
+    - type: custom:mushroom-template-card
+      icon: mdi:routes
+      color: grey
+      icon_color: grey
+      primary: No trips recorded yet
+      secondary: Trips appear automatically as soon as the odometer changes
+      tap_action:
+        action: none
+      grid_options:
+        columns: full
+        rows: auto
+      visibility:
+      - condition: numeric_state
+        entity: todo.vwt_trip_log
+        below: 1
+      card_mod:
+        style: |-
+          ha-card {
+            border-radius: 16px;
+            border: 1px solid rgba(128,128,128,0.2);
+            box-shadow: none;
+          }
+          ha-tile-info span {
+            white-space: normal !important;
+          }
+  - type: grid
+    cards:
+    - type: heading
+      heading: Charging log
+      icon: mdi:ev-station
+      heading_style: title
+    - type: todo-list
+      entity: todo.vwt_charging_log
+      hide_create: true
+      hide_completed: true
+      display_order: duedate_desc
+      grid_options:
+        columns: full
+        rows: auto
+      card_mod:
+        style:
+          .: |-
+            ha-card {
+              border-radius: 16px;
+              border: 1px solid rgba(128,128,128,0.2);
+              box-shadow: none;
+              max-height: 75vh;
+              overflow-y: auto;
+            }
+            .due { display: none !important; }
+            ha-check-list-item { pointer-events: none !important; }
+            .header { display: none !important; }
+          ha-check-list-item $: |-
+            ha-checkbox { display: none !important; }
+            .mdc-deprecated-list-item__text { white-space: normal !important; }

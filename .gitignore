@@ -1,0 +1,11 @@
+.DS_Store
+Thumbs.db
+*.swp
+.vscode/
+.claude/settings.local.json
+# never commit secrets or personal exports
+secrets.yaml
+*.zip
+
+# local test environment (Docker), never publish
+test-env/

@@ -1,0 +1,964 @@
+# ha-vw-evcc-tracker – automations (package 3 of 3)
+#
+# Requires: packages/vwt_helpers.yaml and packages/vwt_scripts.yaml and, for the Telegram
+# parts, the Telegram bot integration with an allowed chat (see docs/en/03-telegram.md).
+# Set the entity ID of your Telegram notify entity in input_text.vwt_notify_entity.
+#
+automation:
+- id: vwt_update_correction_list
+  alias: VWT Update correction list
+  description: 'Keeps input_select.vwt_select_entry up to date: all open entries of the charging log (⚡) and the trip log (🛣), newest first. Used by the correction dialog on the Logs tab of the dashboard.'
+  mode: restart
+  triggers:
+  - trigger: state
+    entity_id:
+    - todo.vwt_charging_log
+    - todo.vwt_trip_log
+  - trigger: homeassistant
+    event: start
+  actions:
+  - delay:
+      seconds: 2
+  - action: todo.get_items
+    target:
+      entity_id:
+      - todo.vwt_charging_log
+      - todo.vwt_trip_log
+    data:
+      status: needs_action
+    response_variable: r
+  - variables:
+      charges: '{{ r[''todo.vwt_charging_log''][''items''] | sort(attribute=''due'', reverse=true) | map(attribute=''summary'') | map(''regex_replace'', ''^'', ''⚡ '') | list }}'
+      trips: '{{ r[''todo.vwt_trip_log''][''items''] | sort(attribute=''due'', reverse=true) | map(attribute=''summary'') | map(''regex_replace'', ''^'', ''🛣 '') | list }}'
+      options: '{{ ([''– Select entry –''] + trips + charges) | unique | list }}'
+  - action: input_select.set_options
+    target:
+      entity_id: input_select.vwt_select_entry
+    data:
+      options: '{{ options }}'
+- id: vwt_auto_record_trip
+  alias: VWT Record trip automatically
+  description: When the odometer (from evcc) increases, the distance since the last reference point is written to the trip log. Consumption is calculated from the battery drop × net capacity. If the battery level rose in between (charged on the way), the trip is logged without consumption.
+  mode: queued
+  triggers:
+  - trigger: state
+    entity_id: sensor.vwt_odometer
+    not_to:
+    - unavailable
+    - unknown
+  conditions:
+  - condition: numeric_state
+    entity_id: sensor.vwt_odometer
+    above: 0
+  actions:
+  - delay:
+      seconds: 10
+    alias: Wait until the battery level is updated, too
+  - variables:
+      km_new: '{{ states(''sensor.vwt_odometer'') | float(0) }}'
+      km_old: '{{ states(''input_number.vwt_last_odometer'') | float(0) }}'
+      soc_new: '{{ states(''sensor.vwt_soc'') | float(-1) }}'
+      soc_old: '{{ states(''input_number.vwt_last_soc'') | float(-1) }}'
+      cap: '{{ states(''input_number.vwt_battery_net_kwh'') | float(86) }}'
+      dkm: '{{ km_new - km_old }}'
+      dsoc: '{{ soc_old - soc_new if soc_new >= 0 and soc_old >= 0 else 0 }}'
+      kwh: '{{ (dsoc * cap / 100) | round(2) if dsoc > 0 else 0 }}'
+  - if:
+    - condition: template
+      value_template: '{{ km_old > 0 and dkm > 0 and dkm < 2000 }}'
+    then:
+    - action: script.vwt_record_trip
+      data:
+        name: Automatic ({{ soc_old | int }} % → {{ soc_new | int }} %)
+        km: '{{ dkm }}'
+        kwh: '{{ kwh }}'
+        source: automatic
+  - action: input_number.set_value
+    target:
+      entity_id: input_number.vwt_last_odometer
+    data:
+      value: '{{ km_new }}'
+  - if:
+    - condition: numeric_state
+      entity_id: sensor.vwt_soc
+      above: 0
+    then:
+    - action: input_number.set_value
+      target:
+        entity_id: input_number.vwt_last_soc
+      data:
+        value: '{{ soc_new }}'
+- id: vwt_charge_detected
+  alias: VWT Charge detected – reminder to record it
+  description: When the battery level rises (according to evcc), the reference value for the trip calculation is updated. From a rise of 5 % a Telegram message asks you to record the charging session (reply with /charge … directly in Telegram, no VPN needed). A previous value of 0 % (short data gap) is ignored.
+  mode: queued
+  triggers:
+  - trigger: state
+    entity_id: sensor.vwt_soc
+    not_from:
+    - unavailable
+    - unknown
+    not_to:
+    - unavailable
+    - unknown
+  conditions:
+  - condition: template
+    value_template: '{{ trigger.to_state.state | float(0) > trigger.from_state.state | float(0) }}'
+  - condition: template
+    value_template: '{{ trigger.from_state.state | float(0) > 0 }}'
+  actions:
+  - variables:
+      soc_from: '{{ trigger.from_state.state | float(0) }}'
+      soc_to: '{{ trigger.to_state.state | float(0) }}'
+      kwh_battery: '{{ ((soc_to - soc_from) * states(''input_number.vwt_battery_net_kwh'') | float(86) / 100) | round(1) }}'
+  - action: input_number.set_value
+    target:
+      entity_id: input_number.vwt_last_soc
+    data:
+      value: '{{ soc_to }}'
+  - if:
+    - condition: template
+      value_template: '{{ soc_to - soc_from >= 5 }}'
+    then:
+    - action: telegram_bot.send_message
+      data:
+        entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+        parse_mode: plain_text
+        message: |-
+          🔌 Charging detected: {{ soc_from | int }} % → {{ soc_to | int }} % (about {{ kwh_battery }} kWh in the battery)
+
+          Please record it from the charging app, e.g.:
+          /charge {{ kwh_battery }} 25.00 Aral
+          or per kWh: /charge {{ kwh_battery }} 0.57/kWh Shell
+- id: vwt_calc_30_days
+  alias: VWT Calculate values of the last 30 days
+  description: Calculates km, kWh charged, driving energy and trip km of the last 30 days (today + 29 days) from the long-term statistics. Sums the daily changes and adds the part that is not compiled yet (current value minus last statistics value), so new entries show up immediately. Runs on every change of the sources, every 30 minutes and after start.
+  mode: restart
+  triggers:
+  - trigger: state
+    entity_id:
+    - sensor.vwt_odometer
+    - sensor.vwt_charged_total
+    - sensor.vwt_drive_energy_total
+    - sensor.vwt_trip_km_total
+    not_to:
+    - unavailable
+    - unknown
+  - trigger: time_pattern
+    minutes: /30
+  - trigger: homeassistant
+    event: start
+  actions:
+  - delay:
+      seconds: 5
+    note: 'Wait briefly so that several simultaneous changes only cause one run (mode: restart).'
+  - action: recorder.get_statistics
+    data:
+      start_time: '{{ (now() - timedelta(days=29)).strftime(''%Y-%m-%d'') }} 00:00:00'
+      statistic_ids:
+      - sensor.vwt_odometer
+      - sensor.vwt_charged_total
+      - sensor.vwt_drive_energy_total
+      - sensor.vwt_trip_km_total
+      period: day
+      types:
+      - change
+      - state
+    response_variable: stat
+  - repeat:
+      for_each:
+      - source: sensor.vwt_odometer
+        target: input_number.vwt_km_30d
+      - source: sensor.vwt_charged_total
+        target: input_number.vwt_charged_30d
+      - source: sensor.vwt_drive_energy_total
+        target: input_number.vwt_drive_energy_30d
+      - source: sensor.vwt_trip_km_total
+        target: input_number.vwt_trip_km_30d
+      sequence:
+      - variables:
+          rows: '{{ stat.statistics.get(repeat.item.source, []) }}'
+          total: '{{ rows | map(attribute=''change'') | select(''number'') | sum }}'
+          last_state: '{{ (rows | last).state if rows | length > 0 and (rows | last).state is number else none }}'
+          live: '{{ (states(repeat.item.source) | float(0) - last_state) if last_state is number and is_number(states(repeat.item.source)) else 0 }}'
+      - action: input_number.set_value
+        target:
+          entity_id: '{{ repeat.item.target }}'
+        data:
+          value: '{{ [total + live, 0] | max | round(2) }}'
+- alias: VWT Telegram commands
+  description: 'Direct commands via Telegram (no VPN needed): /charge <kWh> <price> [provider] [note] – price as total (25.52) or per kWh (0.57/kWh); /trip <km> <kWh/100km> [name]; /status; /help or /start (shows the button keyboard). /charge and /trip WITHOUT values start the guided dialog (automation "VWT Telegram dialog").'
+  triggers:
+  - trigger: event
+    event_type: telegram_command
+    event_data:
+      command: /charge
+    id: charge
+  - trigger: event
+    event_type: telegram_command
+    event_data:
+      command: /trip
+    id: trip
+  - trigger: event
+    event_type: telegram_command
+    event_data:
+      command: /status
+    id: status
+  - trigger: event
+    event_type: telegram_command
+    event_data:
+      command: /help
+    id: help
+  - trigger: event
+    event_type: telegram_command
+    event_data:
+      command: /start
+    id: help
+  actions:
+  - variables:
+      args: '{{ (trigger.event.data.args | default([])) | map(''string'') | list }}'
+      help_text: |-
+        🚗 EV tracker – how it works
+
+        Buttons below:
+        ⚡ Charge – guided entry (kWh → provider → price)
+        🛣 Trip – km and consumption
+        📊 Status – battery, range, last 30 days
+
+        Quick commands:
+
+        /charge 44.78 25.52 Aral
+          44.78 = kWh charged
+          25.52 = total price in €
+          Aral = provider (optional)
+
+        /charge 44.78 0.57/kWh Shell
+          0.57/kWh = price per kWh in €
+          (the total price is calculated)
+
+        /trip 230 17.4 Berlin-Leipzig
+          230 = km driven
+          17.4 = average consumption in kWh/100 km
+          Berlin-Leipzig = name (optional)
+      force: '{{ trigger.event.data.force | default(false) }}'
+      cap: '{{ states(''input_number.vwt_battery_net_kwh'') | float(86) }}'
+  - choose:
+    - conditions:
+      - condition: trigger
+        id: charge
+      - condition: template
+        value_template: '{{ args | length > 0 }}'
+      sequence:
+      - variables:
+          k: '{{ (args[0] | default(''0'')) | replace('','', ''.'') | float(0) }}'
+          p_raw: '{{ (args[1] | default('''')) | lower }}'
+          p_num: '{{ p_raw | replace(''€'', '''') | replace(''/kwh'', '''') | replace(''pk'', '''') | replace('','', ''.'') | float(0) }}'
+          per_kwh: '{{ ''/kwh'' in (p_raw | string) or ''pk'' in (p_raw | string) or (p_num > 0 and p_num < 1.5 and k >= 3) }}'
+          provider: '{{ args[2] if args | length > 2 else ''Other'' }}'
+          note: '{{ (args[3:] | join('' '') ~ '' · '' if args | length > 3 else '''') ~ ''via Telegram'' }}'
+          warn: '{% set w = ''%.2f'' | format(k) %}{% set ppk = (p_num if per_kwh else (p_num / k if k > 0 else 0)) %}{% set pp = ''%.2f'' | format(ppk) %}{% set m = [] %}{% if k > cap + 5 %}{% set m = m + [''⚠️ '' ~ w ~ '' kWh is more than fits in the battery ('' ~ (cap | int) ~ '' kWh net).''] %}{% elif k > 0 and k < 1 %}{% set m = m + [''⚠️ Only '' ~ w ~ '' kWh – that is very little.''] %}{% endif %}{% if not per_kwh and p_num > 150 %}{% set m = m + [''⚠️ '' ~ (''%.2f'' | format(p_num)) ~ '' € is a lot for one charging session.''] %}{% endif %}{% if p_num > 0 and ppk < 0.15 %}{% set m = m + [''⚠️ That would be only '' ~ pp ~ '' €/kWh – very cheap.''] %}{% elif p_num > 0 and ppk > 1.2 %}{% set m = m + [''⚠️ That would be '' ~ pp ~ '' €/kWh – unusually expensive.''] %}{% endif %}{{ '''' if force else m | join(''\n'') }}'
+      - if:
+        - condition: template
+          value_template: '{{ warn | string | trim != '''' }}'
+        then:
+        - variables:
+            fdata: '{% set d = (''/force charge '' ~ (args | join('' ''))) %}{{ d if d | length <= 60 else '''' }}'
+        - action: telegram_bot.send_message
+          data:
+            entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+            parse_mode: plain_text
+            message: |-
+              {{ warn }}
+
+              {{ 'Save anyway?' if fdata else 'Please send the command again with corrected values.' }}
+            inline_keyboard: '{{ [[[''✅ Save anyway'', fdata], [''✖️ Cancel'', ''/cancel'']]] if fdata else [[[''✖️ OK'', ''/cancel'']]] }}'
+        - stop: Plausibility warning
+      - if:
+        - condition: template
+          value_template: '{{ k > 0 }}'
+        then:
+        - action: script.vwt_record_charge
+          data:
+            kwh: '{{ k }}'
+            price: '{{ 0 if per_kwh else p_num }}'
+            price_per_kwh: '{{ p_num if per_kwh else 0 }}'
+            provider: '{{ provider }}'
+            note: '{{ note }}'
+        - variables:
+            gp: '{{ (p_num * k) if per_kwh else p_num }}'
+        - action: telegram_bot.send_message
+          data:
+            entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+            parse_mode: plain_text
+            message: |-
+              ✅ Charging session recorded
+              {{ now().strftime('%Y-%m-%d') }} · {{ provider }} · {{ '%.2f' | format(k) }} kWh{% if gp > 0 %} · {{ '%.2f' | format(gp) }} € ({{ '%.2f' | format(gp / k) }} €/kWh){% else %} · no price{% endif %}
+
+              This month: {{ '%.1f' | format(states('sensor.vwt_charged_month') | float(0)) }} kWh
+        else:
+        - action: telegram_bot.send_message
+          data:
+            entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+            parse_mode: plain_text
+            message: |-
+              ⚠️ Please enter the kWh, e.g. /charge 44.78 25.52 Aral
+
+              {{ help_text }}
+    - conditions:
+      - condition: trigger
+        id: trip
+      - condition: template
+        value_template: '{{ args | length > 0 }}'
+      sequence:
+      - variables:
+          km: '{{ (args[0] | default(''0'')) | replace('','', ''.'') | float(0) }}'
+          v: '{{ (args[1] | default(''0'')) | replace('','', ''.'') | float(0) }}'
+          name: '{{ args[2:] | join('' '') if args | length > 2 else ''Trip'' }}'
+          warn: '{% set m = [] %}{% if km > 1200 %}{% set m = m + [''⚠️ '' ~ (''%.0f'' | format(km)) ~ '' km in one go is unusually far.''] %}{% endif %}{% if v > 0 and (v < 8 or v > 35) %}{% set m = m + [''⚠️ '' ~ (''%.1f'' | format(v)) ~ '' kWh/100 km is unrealistic for this car (typical 13–25).''] %}{% endif %}{{ '''' if force else m | join(''\n'') }}'
+      - if:
+        - condition: template
+          value_template: '{{ warn | string | trim != '''' }}'
+        then:
+        - variables:
+            fdata: '{% set d = (''/force trip '' ~ (args | join('' ''))) %}{{ d if d | length <= 60 else '''' }}'
+        - action: telegram_bot.send_message
+          data:
+            entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+            parse_mode: plain_text
+            message: |-
+              {{ warn }}
+
+              {{ 'Save anyway?' if fdata else 'Please send the command again with corrected values.' }}
+            inline_keyboard: '{{ [[[''✅ Save anyway'', fdata], [''✖️ Cancel'', ''/cancel'']]] if fdata else [[[''✖️ OK'', ''/cancel'']]] }}'
+        - stop: Plausibility warning
+      - if:
+        - condition: template
+          value_template: '{{ km > 0 }}'
+        then:
+        - action: script.vwt_record_trip
+          data:
+            name: '{{ name }}'
+            km: '{{ km }}'
+            consumption: '{{ v }}'
+            count_in_stats: false
+            source: manual
+        - action: telegram_bot.send_message
+          data:
+            entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+            parse_mode: plain_text
+            message: |-
+              ✅ Trip recorded: {{ name }} · {{ '%.1f' | format(km) }} km{% if v > 0 %} · {{ '%.1f' | format(v) }} kWh/100 km{% endif %}
+              (trip log only, not counted twice in the statistics)
+        else:
+        - action: telegram_bot.send_message
+          data:
+            entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+            parse_mode: plain_text
+            message: |-
+              ⚠️ Please enter the km, e.g. /trip 230 17.4 Berlin-Leipzig
+
+              {{ help_text }}
+    - conditions:
+      - condition: trigger
+        id: status
+      sequence:
+      - action: telegram_bot.send_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          parse_mode: plain_text
+          message: |-
+            🚗 EV · status {{ states('sensor.vwt_last_update') }}
+            🔋 Battery {{ states('sensor.vwt_soc') }} % · {{ states('sensor.vwt_range') }} km range
+            📍 Odometer {{ '{:,.0f}'.format(states('sensor.vwt_odometer') | float(0)) }} km
+
+            📅 Last 30 days
+              {{ '{:,.0f}'.format(states('input_number.vwt_km_30d') | float(0)) }} km driven
+              {{ '%.1f' | format(states('input_number.vwt_charged_30d') | float(0)) }} kWh charged
+
+            ⚡ Last charged: {{ states('input_text.vwt_last_charge') }}
+    - conditions:
+      - condition: trigger
+        id: help
+      sequence:
+      - action: telegram_bot.send_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          parse_mode: plain_text
+          message: '{{ help_text }}'
+          keyboard:
+          - ⚡ Charge, 🛣 Trip, 📊 Status
+  mode: queued
+  id: vwt_telegram_commands
+- alias: VWT Telegram dialog
+  description: 'Guided entry via Telegram with buttons: ⚡ Charge (kWh → provider → price type → amount, quick button for your favorite price, undo), 🛣 Trip (km → consumption) and 📊 Status. The current step is kept in input_text.vwt_telegram_dialog and expires after 30 minutes. Direct commands with values (/charge 44.78 25.52 Aral) are still handled by "VWT Telegram commands".'
+  triggers:
+  - trigger: event
+    event_type: telegram_text
+    id: text
+  - trigger: event
+    event_type: telegram_callback
+    id: cb
+  - trigger: event
+    event_type: telegram_command
+    event_data:
+      command: /charge
+    id: cmd_charge
+  - trigger: event
+    event_type: telegram_command
+    event_data:
+      command: /trip
+    id: cmd_trip
+  actions:
+  - variables:
+      stale: '{{ (now() - states.input_text.vwt_telegram_dialog.last_changed).total_seconds() > 1800 }}'
+      st: '{% set raw = states(''input_text.vwt_telegram_dialog'') | string %}{{ (raw | from_json) if raw[:1] == ''{'' and not stale else {} }}'
+      text: '{{ (trigger.event.data.text | default('''') | string) | trim }}'
+      cb: '{{ (trigger.event.data.data | default('''') | string) | trim }}'
+      cmd: '{{ (cb | string).split('' '')[0] if cb else '''' }}'
+      arg: '{{ (cb | string).split('' '', 1)[1] if '' '' in (cb | string) else '''' }}'
+      button: '{% set t = text | string %}{{ ''charge'' if t.endswith(''Charge'') and t | length < 12 else (''trip'' if t.endswith(''Trip'') and t | length < 14 else (''status'' if t.endswith(''Status'') and t | length < 13 else '''')) }}'
+      num: '{{ (text | string) | replace(''€'', '''') | replace(''kWh'', '''') | replace(''km'', '''') | replace('','', ''.'') | trim }}'
+      is_num: '{{ is_number(num) }}'
+      val: '{{ num | float(0) if is_num else 0 }}'
+      force: '{{ trigger.event.data.force | default(false) }}'
+      cap: '{{ states(''input_number.vwt_battery_net_kwh'') | float(86) }}'
+      warn: '{% set s = st.get(''m'', '''') ~ ''/'' ~ st.get(''s'', '''') %}{% set w = ''%.2f'' | format(val) %}{% if not is_num or force %}{% elif s == ''charge/kwh'' %}{% if val > cap + 5 %}⚠️ {{ w }} kWh is more than fits in the battery ({{ cap | int }} kWh net).{% elif val < 1 %}⚠️ Only {{ w }} kWh – that is very little.{% endif %}{% elif s == ''charge/amount'' and st.get(''p'') == ''total'' %}{% set ppk = val / (st.get(''k'', 1) | float(1)) %}{% set pp = ''%.2f'' | format(ppk) %}{% if val > 150 %}⚠️ {{ w }} € is a lot for one charging session.{% elif ppk < 0.15 %}⚠️ That would be only {{ pp }} €/kWh – very cheap.{% elif ppk > 1.2 %}⚠️ That would be {{ pp }} €/kWh – unusually expensive.{% endif %}{% elif s == ''charge/amount'' %}{% if val < 0.15 %}⚠️ {{ w }} €/kWh is very cheap.{% elif val > 1.2 %}⚠️ {{ w }} €/kWh is unusually expensive.{% endif %}{% elif s == ''trip/km'' %}{% if val > 1200 %}⚠️ {{ ''%.0f'' | format(val) }} km in one go is unusually far.{% endif %}{% elif s == ''trip/cons''
+        %}{% if val > 0 and (val < 8 or val > 35) %}⚠️ {{ ''%.1f'' | format(val) }} kWh/100 km is unrealistic for this car (typical 13–25).{% endif %}{% endif %}'
+  - if:
+    - condition: trigger
+      id: cb
+    then:
+    - action: telegram_bot.answer_callback_query
+      data:
+        callback_query_id: '{{ trigger.event.data.id }}'
+        message: OK
+        show_alert: false
+  - choose:
+    - conditions:
+      - condition: or
+        conditions:
+        - condition: and
+          conditions:
+          - condition: trigger
+            id: cmd_charge
+          - condition: template
+            value_template: '{{ (trigger.event.data.args | default([])) | length == 0 }}'
+        - condition: and
+          conditions:
+          - condition: trigger
+            id: text
+          - condition: template
+            value_template: '{{ button == ''charge'' }}'
+      sequence:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vwt_telegram_dialog
+        data:
+          value: '{"m":"charge","s":"kwh"}'
+      - action: telegram_bot.send_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          parse_mode: plain_text
+          message: |-
+            ⚡ New charging session
+            How many kWh? (e.g. 44.78)
+          inline_keyboard:
+          - - - ✖️ Cancel
+              - /cancel
+    - conditions:
+      - condition: or
+        conditions:
+        - condition: and
+          conditions:
+          - condition: trigger
+            id: cmd_trip
+          - condition: template
+            value_template: '{{ (trigger.event.data.args | default([])) | length == 0 }}'
+        - condition: and
+          conditions:
+          - condition: trigger
+            id: text
+          - condition: template
+            value_template: '{{ button == ''trip'' }}'
+      sequence:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vwt_telegram_dialog
+        data:
+          value: '{"m":"trip","s":"km"}'
+      - action: telegram_bot.send_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          parse_mode: plain_text
+          message: |-
+            🛣 New trip
+            How many km? (e.g. 230)
+          inline_keyboard:
+          - - - ✖️ Cancel
+              - /cancel
+    - conditions:
+      - condition: trigger
+        id: text
+      - condition: template
+        value_template: '{{ button == ''status'' }}'
+      sequence:
+      - event: telegram_command
+        event_data:
+          command: /status
+          args: []
+          chat_id: '{{ trigger.event.data.chat_id }}'
+    - conditions:
+      - condition: trigger
+        id: cb
+      - condition: template
+        value_template: '{{ cmd == ''/cancel'' }}'
+      sequence:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vwt_telegram_dialog
+        data:
+          value: '{}'
+      - action: telegram_bot.edit_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          message_id: '{{ trigger.event.data.message.message_id }}'
+          parse_mode: plain_text
+          message: ✖️ Cancelled
+    - conditions:
+      - condition: trigger
+        id: cb
+      - condition: template
+        value_template: '{{ cmd == ''/undo'' }}'
+      sequence:
+      - action: todo.update_item
+        target:
+          entity_id: todo.vwt_charging_log
+        data:
+          item: '{{ arg }}'
+          status: completed
+        continue_on_error: true
+      - action: script.vwt_apply_correction
+      - action: persistent_notification.dismiss
+        data:
+          notification_id: vwt_correction
+      - action: telegram_bot.edit_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          message_id: '{{ trigger.event.data.message.message_id }}'
+          parse_mode: plain_text
+          message: ↩️ Charging session removed, totals recalculated.
+    - conditions:
+      - condition: trigger
+        id: cb
+      - condition: template
+        value_template: '{{ cmd == ''/undo_trip'' }}'
+      sequence:
+      - action: todo.update_item
+        target:
+          entity_id: todo.vwt_trip_log
+        data:
+          item: '{{ arg }}'
+          status: completed
+        continue_on_error: true
+      - action: script.vwt_apply_correction
+      - action: persistent_notification.dismiss
+        data:
+          notification_id: vwt_correction
+      - action: telegram_bot.edit_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          message_id: '{{ trigger.event.data.message.message_id }}'
+          parse_mode: plain_text
+          message: ↩️ Trip removed.
+    - conditions:
+      - condition: trigger
+        id: text
+      - condition: template
+        value_template: '{{ warn | string | trim != '''' }}'
+      sequence:
+      - action: telegram_bot.send_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          parse_mode: plain_text
+          message: |-
+            {{ warn }}
+            Accept anyway?
+          inline_keyboard:
+          - - - ✅ Yes, accept
+              - /ok {{ num }}
+            - - ✏️ Enter again
+              - /retry
+          - - - ✖️ Cancel
+              - /cancel
+    - conditions:
+      - condition: trigger
+        id: cb
+      - condition: template
+        value_template: '{{ cmd == ''/ok'' }}'
+      sequence:
+      - action: telegram_bot.edit_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          message_id: '{{ trigger.event.data.message.message_id }}'
+          parse_mode: plain_text
+          message: ✅ Accepted
+      - event: telegram_text
+        event_data:
+          text: '{{ arg }}'
+          chat_id: '{{ trigger.event.data.chat_id }}'
+          force: true
+    - conditions:
+      - condition: trigger
+        id: cb
+      - condition: template
+        value_template: '{{ cmd == ''/retry'' }}'
+      sequence:
+      - action: telegram_bot.edit_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          message_id: '{{ trigger.event.data.message.message_id }}'
+          parse_mode: plain_text
+          message: ✏️ Please enter the value again.
+    - conditions:
+      - condition: trigger
+        id: cb
+      - condition: template
+        value_template: '{{ cmd == ''/force'' }}'
+      sequence:
+      - action: telegram_bot.edit_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          message_id: '{{ trigger.event.data.message.message_id }}'
+          parse_mode: plain_text
+          message: ✅ Saving anyway …
+      - event: telegram_command
+        event_data:
+          command: '{{ ''/'' ~ (arg.split('' '')[0]) }}'
+          args: '{{ arg.split('' '')[1:] }}'
+          chat_id: '{{ trigger.event.data.chat_id }}'
+          force: true
+    - conditions:
+      - condition: trigger
+        id: text
+      - condition: template
+        value_template: '{{ st.get(''m'') == ''charge'' and st.get(''s'') == ''kwh'' }}'
+      sequence:
+      - if:
+        - condition: template
+          value_template: '{{ val > 0 }}'
+        then:
+        - action: input_text.set_value
+          target:
+            entity_id: input_text.vwt_telegram_dialog
+          data:
+            value: '{{ {''m'': ''charge'', ''s'': ''prov'', ''k'': val} | to_json }}'
+        - action: telegram_bot.send_message
+          data:
+            entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+            parse_mode: plain_text
+            message: '{{ ''%.2f'' | format(val) }} kWh – which provider?'
+            inline_keyboard:
+            - - - Aral
+                - /prov Aral
+              - - Shell
+                - /prov Shell
+            - - - EnBW
+                - /prov EnBW
+              - - Ionity
+                - /prov Ionity
+            - - - Other
+                - /prov Other
+              - - ✖️ Cancel
+                - /cancel
+        else:
+        - action: telegram_bot.send_message
+          data:
+            entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+            parse_mode: plain_text
+            message: Please enter a number, e.g. 44.78
+            inline_keyboard:
+            - - - ✖️ Cancel
+                - /cancel
+    - conditions:
+      - condition: trigger
+        id: cb
+      - condition: template
+        value_template: '{{ cmd == ''/prov'' and st.get(''s'') == ''prov'' }}'
+      sequence:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vwt_telegram_dialog
+        data:
+          value: '{{ {''m'': ''charge'', ''s'': ''ptype'', ''k'': st.k, ''a'': arg} | to_json }}'
+      - action: telegram_bot.edit_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          message_id: '{{ trigger.event.data.message.message_id }}'
+          parse_mode: plain_text
+          message: '{{ ''%.2f'' | format(st.k | float(0)) }} kWh · {{ arg }}'
+      - action: telegram_bot.send_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          parse_mode: plain_text
+          message: How do you want to enter the price?
+          inline_keyboard:
+          - - - 💶 Total price
+              - /pt total
+            - - 📐 € per kWh
+              - /pt kwh
+          - - - ⭐ Favorite {{ '%.2f' | format(states('input_number.vwt_favorite_price') | float(0)) }} €/kWh
+              - /pt fav
+          - - - no price
+              - /pt none
+            - - ✖️ Cancel
+              - /cancel
+    - conditions:
+      - condition: trigger
+        id: cb
+      - condition: template
+        value_template: '{{ cmd == ''/pt'' and arg == ''fav'' and st.get(''s'') == ''ptype'' }}'
+      sequence:
+      - action: telegram_bot.edit_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          message_id: '{{ trigger.event.data.message.message_id }}'
+          parse_mode: plain_text
+          message: ⭐ Favorite {{ '%.2f' | format(states('input_number.vwt_favorite_price') | float(0)) }} €/kWh
+      - action: script.vwt_record_charge
+        data:
+          kwh: '{{ st.k }}'
+          price: '0'
+          price_per_kwh: '{{ states(''input_number.vwt_favorite_price'') }}'
+          provider: '{{ st.a }}'
+          note: via Telegram
+      - action: todo.get_items
+        target:
+          entity_id: todo.vwt_charging_log
+        data:
+          status: needs_action
+        response_variable: r
+      - variables:
+          new_item: '{{ r[''todo.vwt_charging_log''][''items''] | last }}'
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vwt_telegram_dialog
+        data:
+          value: '{}'
+      - action: telegram_bot.send_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          parse_mode: plain_text
+          message: |-
+            ✅ Saved
+            {{ new_item.summary }}
+
+            This month: {{ '%.1f' | format(states('sensor.vwt_charged_month') | float(0)) }} kWh
+          inline_keyboard:
+          - - - ↩️ Undo
+              - /undo {{ new_item.uid }}
+    - conditions:
+      - condition: trigger
+        id: cb
+      - condition: template
+        value_template: '{{ cmd == ''/pt'' and arg == ''none'' and st.get(''s'') == ''ptype'' }}'
+      sequence:
+      - action: telegram_bot.edit_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          message_id: '{{ trigger.event.data.message.message_id }}'
+          parse_mode: plain_text
+          message: no price
+      - action: script.vwt_record_charge
+        data:
+          kwh: '{{ st.k }}'
+          price: '0'
+          price_per_kwh: '0'
+          provider: '{{ st.a }}'
+          note: via Telegram
+      - action: todo.get_items
+        target:
+          entity_id: todo.vwt_charging_log
+        data:
+          status: needs_action
+        response_variable: r
+      - variables:
+          new_item: '{{ r[''todo.vwt_charging_log''][''items''] | last }}'
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vwt_telegram_dialog
+        data:
+          value: '{}'
+      - action: telegram_bot.send_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          parse_mode: plain_text
+          message: |-
+            ✅ Saved
+            {{ new_item.summary }}
+
+            This month: {{ '%.1f' | format(states('sensor.vwt_charged_month') | float(0)) }} kWh
+          inline_keyboard:
+          - - - ↩️ Undo
+              - /undo {{ new_item.uid }}
+    - conditions:
+      - condition: trigger
+        id: cb
+      - condition: template
+        value_template: '{{ cmd == ''/pt'' and arg in [''total'', ''kwh''] and st.get(''s'') == ''ptype'' }}'
+      sequence:
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vwt_telegram_dialog
+        data:
+          value: '{{ {''m'': ''charge'', ''s'': ''amount'', ''k'': st.k, ''a'': st.a, ''p'': arg} | to_json }}'
+      - action: telegram_bot.edit_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          message_id: '{{ trigger.event.data.message.message_id }}'
+          parse_mode: plain_text
+          message: '{{ ''💶 Total price'' if arg == ''total'' else ''📐 € per kWh'' }}'
+      - action: telegram_bot.send_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          parse_mode: plain_text
+          message: '{{ ''Total amount in €? (e.g. 25.52)'' if arg == ''total'' else ''Price per kWh in €? (e.g. 0.57)'' }}'
+          inline_keyboard:
+          - - - ✖️ Cancel
+              - /cancel
+    - conditions:
+      - condition: trigger
+        id: text
+      - condition: template
+        value_template: '{{ st.get(''m'') == ''charge'' and st.get(''s'') == ''amount'' }}'
+      sequence:
+      - if:
+        - condition: template
+          value_template: '{{ val > 0 }}'
+        then:
+        - action: script.vwt_record_charge
+          data:
+            kwh: '{{ st.k }}'
+            price: '{{ val if st.p == ''total'' else 0 }}'
+            price_per_kwh: '{{ val if st.p == ''kwh'' else 0 }}'
+            provider: '{{ st.a }}'
+            note: via Telegram
+        - action: todo.get_items
+          target:
+            entity_id: todo.vwt_charging_log
+          data:
+            status: needs_action
+          response_variable: r
+        - variables:
+            new_item: '{{ r[''todo.vwt_charging_log''][''items''] | last }}'
+        - action: input_text.set_value
+          target:
+            entity_id: input_text.vwt_telegram_dialog
+          data:
+            value: '{}'
+        - action: telegram_bot.send_message
+          data:
+            entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+            parse_mode: plain_text
+            message: |-
+              ✅ Saved
+              {{ new_item.summary }}
+
+              This month: {{ '%.1f' | format(states('sensor.vwt_charged_month') | float(0)) }} kWh
+            inline_keyboard:
+            - - - ↩️ Undo
+                - /undo {{ new_item.uid }}
+        else:
+        - action: telegram_bot.send_message
+          data:
+            entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+            parse_mode: plain_text
+            message: Please enter an amount, e.g. 25.52
+            inline_keyboard:
+            - - - ✖️ Cancel
+                - /cancel
+    - conditions:
+      - condition: trigger
+        id: text
+      - condition: template
+        value_template: '{{ st.get(''m'') == ''trip'' and st.get(''s'') == ''km'' }}'
+      sequence:
+      - if:
+        - condition: template
+          value_template: '{{ val > 0 }}'
+        then:
+        - action: input_text.set_value
+          target:
+            entity_id: input_text.vwt_telegram_dialog
+          data:
+            value: '{{ {''m'': ''trip'', ''s'': ''cons'', ''km'': val} | to_json }}'
+        - action: telegram_bot.send_message
+          data:
+            entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+            parse_mode: plain_text
+            message: '{{ ''%.1f'' | format(val) }} km – average consumption from the on-board computer in kWh/100 km? (0 = unknown)'
+            inline_keyboard:
+            - - - ✖️ Cancel
+                - /cancel
+        else:
+        - action: telegram_bot.send_message
+          data:
+            entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+            parse_mode: plain_text
+            message: Please enter a number, e.g. 230
+            inline_keyboard:
+            - - - ✖️ Cancel
+                - /cancel
+    - conditions:
+      - condition: trigger
+        id: text
+      - condition: template
+        value_template: '{{ st.get(''m'') == ''trip'' and st.get(''s'') == ''cons'' and is_num }}'
+      sequence:
+      - action: script.vwt_record_trip
+        data:
+          name: Trip (Telegram)
+          km: '{{ st.km }}'
+          consumption: '{{ val }}'
+          count_in_stats: false
+          source: manual
+      - action: todo.get_items
+        target:
+          entity_id: todo.vwt_trip_log
+        data:
+          status: needs_action
+        response_variable: r
+      - variables:
+          new_item: '{{ r[''todo.vwt_trip_log''][''items''] | last }}'
+      - action: input_text.set_value
+        target:
+          entity_id: input_text.vwt_telegram_dialog
+        data:
+          value: '{}'
+      - action: telegram_bot.send_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          parse_mode: plain_text
+          message: |-
+            ✅ Trip saved
+            {{ new_item.summary }}
+          inline_keyboard:
+          - - - ↩️ Undo
+              - /undo_trip {{ new_item.uid }}
+    default:
+    - if:
+      - condition: trigger
+        id: text
+      then:
+      - action: telegram_bot.send_message
+        data:
+          entity_id: '{{ states(''input_text.vwt_notify_entity'') }}'
+          parse_mode: plain_text
+          message: |-
+            🚗 EV – use the buttons below:
+            ⚡ Charge · 🛣 Trip · 📊 Status
+
+            Or directly: /charge 44.78 25.52 Aral
+          keyboard:
+          - ⚡ Charge, 🛣 Trip, 📊 Status
+  mode: queued
+  id: vwt_telegram_dialog

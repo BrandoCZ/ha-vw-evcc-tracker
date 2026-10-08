@@ -1,0 +1,591 @@
+# ha-vw-evcc-tracker – scripts (package 2 of 3)
+#
+# Requires: packages/vwt_helpers.yaml and two Local To-do lists created in the UI:
+#   todo.vwt_charging_log   (name it "VWT Charging log")
+#   todo.vwt_trip_log       (name it "VWT Trip log")
+#
+# The log entries are plain text, for example:
+#   2026-09-13 · Aral · 44.78 kWh · 25.52 € · 0.57 €/kWh
+#   2026-10-05 · Trip · 3.0 km · 1.70 kWh · 56.7 kWh/100km
+# The correction script reads the values back from this text, so do not change
+# the format (ISO date, dot as decimal separator) without changing the regexes.
+
+script:
+  vwt_record_charge:
+    alias: "VWT Record charging session"
+    icon: mdi:ev-station
+    description: >-
+      Records a public charging session. Enter the price either as a total or per kWh –
+      the other value is calculated. Increases the totals and adds an entry to the charging log.
+    mode: queued
+    fields:
+      kwh:
+        name: Energy charged
+        description: kWh according to the charging app or receipt
+        required: true
+        selector:
+          number:
+            min: 0.5
+            max: 100
+            step: 0.01
+            unit_of_measurement: kWh
+            mode: box
+      price:
+        name: Total price
+        description: Amount paid in € – OR enter the price per kWh below (empty / 0 = price unknown)
+        required: false
+        selector:
+          number:
+            min: 0
+            max: 200
+            step: 0.01
+            unit_of_measurement: "€"
+            mode: box
+      price_per_kwh:
+        name: Price per kWh
+        description: Alternative to the total price, e.g. 0.57 (max. 1.50)
+        required: false
+        selector:
+          number:
+            min: 0
+            max: 1.5
+            step: 0.01
+            unit_of_measurement: "€/kWh"
+            mode: box
+      provider:
+        name: Provider
+        required: true
+        default: Shell
+        selector:
+          select:
+            custom_value: true
+            options:
+              - Shell
+              - Aral
+              - EnBW
+              - Ionity
+              - Tesla
+              - Other
+      date:
+        name: Date
+        description: Empty = today
+        required: false
+        selector:
+          date:
+      note:
+        name: Note
+        description: e.g. location
+        required: false
+        selector:
+          text:
+    sequence:
+      - variables:
+          d: "{{ date if date is defined and date else now().date() | string }}"
+          k: "{{ kwh | float(0) }}"
+          p: >-
+            {% set gp = price | float(0) if price is defined and price not in [none, ''] else 0 %}
+            {% set pk = price_per_kwh | float(0) if price_per_kwh is defined and price_per_kwh not in [none, ''] else 0 %}
+            {{ (gp if gp > 0 else pk * (kwh | float(0))) | round(2) }}
+          ppk: "{{ (p / k) if k > 0 else 0 }}"
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.vwt_total_charged
+        data:
+          value: "{{ (states('input_number.vwt_total_charged') | float(0) + k) | round(2) }}"
+      - if:
+          - condition: template
+            value_template: "{{ p > 0 }}"
+        then:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.vwt_total_charged_priced
+            data:
+              value: "{{ (states('input_number.vwt_total_charged_priced') | float(0) + k) | round(2) }}"
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.vwt_total_charge_cost
+        data:
+          value: "{{ (states('input_number.vwt_total_charge_cost') | float(0) + p) | round(2) }}"
+      - action: counter.increment
+        target:
+          entity_id: counter.vwt_charge_count
+      - action: todo.add_item
+        target:
+          entity_id: todo.vwt_charging_log
+        data:
+          item: >-
+            {{ as_datetime(d).strftime('%Y-%m-%d') }} · {{ provider }} · {{ '%.2f' | format(k) }} kWh ·
+            {% if p > 0 %}{{ '%.2f' | format(p) }} € · {{ '%.2f' | format(ppk) }} €/kWh{% else %}no price{% endif %}
+          due_date: "{{ d }}"
+          description: "{{ note if note is defined else '' }}"
+      # A back-dated entry must not count in the current month / year meters
+      - if:
+          - condition: template
+            value_template: "{{ (d | string)[:7] != now().strftime('%Y-%m') }}"
+        then:
+          - delay: "00:00:02"
+          - action: utility_meter.calibrate
+            target:
+              entity_id: sensor.vwt_charged_month
+            data:
+              value: "{{ [states('sensor.vwt_charged_month') | float(0) - k, 0] | max | round(3) }}"
+          - if:
+              - condition: template
+                value_template: "{{ p > 0 }}"
+            then:
+              - action: utility_meter.calibrate
+                target:
+                  entity_id: sensor.vwt_charge_cost_month
+                data:
+                  value: "{{ [states('sensor.vwt_charge_cost_month') | float(0) - p, 0] | max | round(2) }}"
+              - action: utility_meter.calibrate
+                target:
+                  entity_id: sensor.vwt_charged_priced_month
+                data:
+                  value: "{{ [states('sensor.vwt_charged_priced_month') | float(0) - k, 0] | max | round(3) }}"
+      - if:
+          - condition: template
+            value_template: "{{ (d | string)[:4] != now().strftime('%Y') }}"
+        then:
+          - delay: "00:00:02"
+          - action: utility_meter.calibrate
+            target:
+              entity_id: sensor.vwt_charged_year
+            data:
+              value: "{{ [states('sensor.vwt_charged_year') | float(0) - k, 0] | max | round(3) }}"
+          - if:
+              - condition: template
+                value_template: "{{ p > 0 }}"
+            then:
+              - action: utility_meter.calibrate
+                target:
+                  entity_id: sensor.vwt_charge_cost_year
+                data:
+                  value: "{{ [states('sensor.vwt_charge_cost_year') | float(0) - p, 0] | max | round(2) }}"
+      - alias: "Remember the latest charging session (only if not older)"
+        if:
+          - condition: template
+            value_template: >-
+              {% set old = states('input_text.vwt_last_charge')[:10] %}
+              {{ old | length < 10 or d >= old }}
+        then:
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.vwt_last_charge
+            data:
+              value: "{{ as_datetime(d).strftime('%Y-%m-%d') }} · {{ provider }} · {{ '%.2f' | format(k) }} kWh"
+      - event: vwt_charge
+        event_data:
+          date: "{{ d }}"
+          kwh: "{{ k }}"
+          price: "{{ p }}"
+          provider: "{{ provider }}"
+
+  vwt_record_trip:
+    alias: "VWT Record trip"
+    icon: mdi:map-marker-path
+    description: >-
+      Records a trip in the trip log. Enter kWh OR the average consumption from the on-board
+      computer. Also used by the automatic trip detection.
+    mode: queued
+    fields:
+      name:
+        name: Trip
+        description: e.g. Berlin → Hamburg
+        required: true
+        default: Trip
+        selector:
+          text:
+      km:
+        name: Distance
+        required: true
+        selector:
+          number:
+            min: 0.1
+            max: 2000
+            step: 0.1
+            unit_of_measurement: km
+            mode: box
+      consumption:
+        name: Average consumption
+        description: kWh/100 km according to the on-board computer (typical 13–25, max. 40) – or enter kWh instead
+        required: false
+        selector:
+          number:
+            min: 0
+            max: 40
+            step: 0.1
+            unit_of_measurement: kWh/100km
+            mode: box
+      kwh:
+        name: Energy used
+        description: kWh (alternative to the average consumption)
+        required: false
+        selector:
+          number:
+            min: 0
+            max: 100
+            step: 0.01
+            unit_of_measurement: kWh
+            mode: box
+      date:
+        name: Date
+        description: Empty = today
+        required: false
+        selector:
+          date:
+      count_in_stats:
+        name: Include in total consumption
+        description: Only switch on if the trip was NOT already recorded automatically (otherwise it is counted twice).
+        required: false
+        default: false
+        selector:
+          boolean:
+      source:
+        name: Source
+        required: false
+        default: manual
+        selector:
+          select:
+            options:
+              - manual
+              - automatic
+    sequence:
+      - variables:
+          d: "{{ date if date is defined and date else now().date() | string }}"
+          dist: "{{ km | float(0) }}"
+          v_in: "{{ consumption | float(0) if consumption is defined else 0 }}"
+          e_in: "{{ kwh | float(0) if kwh is defined else 0 }}"
+          v: "{{ v_in if v_in > 0 else ((e_in / dist * 100) if dist > 0 else 0) }}"
+          e: "{{ e_in if e_in > 0 else (v_in * dist / 100) }}"
+          src: "{{ source if source is defined else 'manual' }}"
+          count: "{{ (count_in_stats if count_in_stats is defined else false) or src == 'automatic' }}"
+      - action: input_number.set_value
+        target:
+          entity_id: input_number.vwt_last_trip_km
+        data:
+          value: "{{ [dist, 5000] | min | round(1) }}"
+      - if:
+          - condition: template
+            value_template: "{{ v > 0 }}"
+        then:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.vwt_last_trip_consumption
+            data:
+              value: "{{ [v, 100] | min | round(1) }}"
+      - if:
+          - condition: template
+            value_template: "{{ count and e > 0 }}"
+        then:
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.vwt_total_drive_energy
+            data:
+              value: "{{ (states('input_number.vwt_total_drive_energy') | float(0) + e) | round(2) }}"
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.vwt_total_trip_km
+            data:
+              value: "{{ (states('input_number.vwt_total_trip_km') | float(0) + dist) | round(1) }}"
+      - action: todo.add_item
+        target:
+          entity_id: todo.vwt_trip_log
+        data:
+          item: >-
+            {{ as_datetime(d).strftime('%Y-%m-%d') }} · {{ name }} · {{ '%.1f' | format(dist) }} km
+            {%- if e > 0 %} · {{ '%.2f' | format(e) }} kWh · {{ '%.1f' | format(v) }} kWh/100km{% endif %}
+          due_date: "{{ d }}"
+          description: "Source: {{ src }}{{ ' · counted in statistics' if count and e > 0 else '' }}"
+      # A back-dated entry must not count in the current month / year meters
+      - if:
+          - condition: template
+            value_template: "{{ count and e > 0 and (d | string)[:7] != now().strftime('%Y-%m') }}"
+        then:
+          - delay: "00:00:02"
+          - action: utility_meter.calibrate
+            target:
+              entity_id: sensor.vwt_drive_energy_month
+            data:
+              value: "{{ [states('sensor.vwt_drive_energy_month') | float(0) - e, 0] | max | round(3) }}"
+          - action: utility_meter.calibrate
+            target:
+              entity_id: sensor.vwt_trip_km_month
+            data:
+              value: "{{ [states('sensor.vwt_trip_km_month') | float(0) - dist, 0] | max | round(1) }}"
+      - if:
+          - condition: template
+            value_template: "{{ count and e > 0 and (d | string)[:4] != now().strftime('%Y') }}"
+        then:
+          - delay: "00:00:02"
+          - action: utility_meter.calibrate
+            target:
+              entity_id: sensor.vwt_drive_energy_year
+            data:
+              value: "{{ [states('sensor.vwt_drive_energy_year') | float(0) - e, 0] | max | round(3) }}"
+          - action: utility_meter.calibrate
+            target:
+              entity_id: sensor.vwt_trip_km_year
+            data:
+              value: "{{ [states('sensor.vwt_trip_km_year') | float(0) - dist, 0] | max | round(1) }}"
+      - event: vwt_trip
+        event_data:
+          date: "{{ d }}"
+          name: "{{ name }}"
+          km: "{{ dist }}"
+          kwh: "{{ e }}"
+          consumption: "{{ v }}"
+          source: "{{ src }}"
+
+  vwt_apply_correction:
+    alias: "VWT Remove checked entries"
+    icon: mdi:playlist-remove
+    description: >-
+      Removes all checked entries from the charging log and the trip log and subtracts their
+      values from the totals and from the monthly and yearly meters (meters only if the entry
+      falls into the current period). The 30-day values update automatically. The values are
+      read from the entry text.
+    mode: single
+    sequence:
+      - variables:
+          month: "{{ now().strftime('%Y-%m') }}"
+          year: "{{ now().strftime('%Y') }}"
+      - action: todo.get_items
+        target:
+          entity_id: todo.vwt_charging_log
+        data:
+          status: completed
+        response_variable: charges
+      - repeat:
+          for_each: "{{ charges['todo.vwt_charging_log']['items'] }}"
+          sequence:
+            - variables:
+                s: "{{ repeat.item.summary }}"
+                d: "{{ repeat.item.due | default(now().date() | string) }}"
+                k: "{{ (s | regex_findall('([0-9]+\\.[0-9]+) kWh(?!/)') | first | default('0')) | float(0) }}"
+                p: "{{ (s | regex_findall('([0-9]+\\.[0-9]+) €(?!/)') | first | default('0')) | float(0) }}"
+                in_month: "{{ (d | string)[:7] == (month | string) }}"
+                in_year: "{{ (d | string)[:4] == (year | string) }}"
+            - action: input_number.set_value
+              target:
+                entity_id: input_number.vwt_total_charged
+              data:
+                value: "{{ [states('input_number.vwt_total_charged') | float(0) - k, 0] | max | round(2) }}"
+            - if:
+                - condition: template
+                  value_template: "{{ p > 0 }}"
+              then:
+                - action: input_number.set_value
+                  target:
+                    entity_id: input_number.vwt_total_charged_priced
+                  data:
+                    value: "{{ [states('input_number.vwt_total_charged_priced') | float(0) - k, 0] | max | round(2) }}"
+                - action: input_number.set_value
+                  target:
+                    entity_id: input_number.vwt_total_charge_cost
+                  data:
+                    value: "{{ [states('input_number.vwt_total_charge_cost') | float(0) - p, 0] | max | round(2) }}"
+            - action: counter.decrement
+              target:
+                entity_id: counter.vwt_charge_count
+            - if:
+                - condition: template
+                  value_template: "{{ in_month }}"
+              then:
+                - action: utility_meter.calibrate
+                  target:
+                    entity_id: sensor.vwt_charged_month
+                  data:
+                    value: "{{ [states('sensor.vwt_charged_month') | float(0) - k, 0] | max | round(3) }}"
+                - if:
+                    - condition: template
+                      value_template: "{{ p > 0 }}"
+                  then:
+                    - action: utility_meter.calibrate
+                      target:
+                        entity_id: sensor.vwt_charge_cost_month
+                      data:
+                        value: "{{ [states('sensor.vwt_charge_cost_month') | float(0) - p, 0] | max | round(2) }}"
+                    - action: utility_meter.calibrate
+                      target:
+                        entity_id: sensor.vwt_charged_priced_month
+                      data:
+                        value: "{{ [states('sensor.vwt_charged_priced_month') | float(0) - k, 0] | max | round(3) }}"
+            - if:
+                - condition: template
+                  value_template: "{{ in_year }}"
+              then:
+                - action: utility_meter.calibrate
+                  target:
+                    entity_id: sensor.vwt_charged_year
+                  data:
+                    value: "{{ [states('sensor.vwt_charged_year') | float(0) - k, 0] | max | round(3) }}"
+                - if:
+                    - condition: template
+                      value_template: "{{ p > 0 }}"
+                  then:
+                    - action: utility_meter.calibrate
+                      target:
+                        entity_id: sensor.vwt_charge_cost_year
+                      data:
+                        value: "{{ [states('sensor.vwt_charge_cost_year') | float(0) - p, 0] | max | round(2) }}"
+            - action: todo.remove_item
+              target:
+                entity_id: todo.vwt_charging_log
+              data:
+                item: "{{ repeat.item.uid }}"
+      - action: todo.get_items
+        target:
+          entity_id: todo.vwt_trip_log
+        data:
+          status: completed
+        response_variable: trips
+      - repeat:
+          for_each: "{{ trips['todo.vwt_trip_log']['items'] }}"
+          sequence:
+            - variables:
+                s: "{{ repeat.item.summary }}"
+                d: "{{ repeat.item.due | default(now().date() | string) }}"
+                km: "{{ (s | regex_findall('([0-9]+\\.[0-9]+) km') | first | default('0')) | float(0) }}"
+                e: "{{ (s | regex_findall('([0-9]+\\.[0-9]+) kWh(?!/)') | first | default('0')) | float(0) }}"
+                counted: "{{ 'counted in statistics' in (repeat.item.description | default('')) and e > 0 }}"
+                in_month: "{{ (d | string)[:7] == (month | string) }}"
+                in_year: "{{ (d | string)[:4] == (year | string) }}"
+            - if:
+                - condition: template
+                  value_template: "{{ counted }}"
+              then:
+                - action: input_number.set_value
+                  target:
+                    entity_id: input_number.vwt_total_drive_energy
+                  data:
+                    value: "{{ [states('input_number.vwt_total_drive_energy') | float(0) - e, 0] | max | round(2) }}"
+                - action: input_number.set_value
+                  target:
+                    entity_id: input_number.vwt_total_trip_km
+                  data:
+                    value: "{{ [states('input_number.vwt_total_trip_km') | float(0) - km, 0] | max | round(1) }}"
+                - if:
+                    - condition: template
+                      value_template: "{{ in_month }}"
+                  then:
+                    - action: utility_meter.calibrate
+                      target:
+                        entity_id: sensor.vwt_drive_energy_month
+                      data:
+                        value: "{{ [states('sensor.vwt_drive_energy_month') | float(0) - e, 0] | max | round(3) }}"
+                    - action: utility_meter.calibrate
+                      target:
+                        entity_id: sensor.vwt_trip_km_month
+                      data:
+                        value: "{{ [states('sensor.vwt_trip_km_month') | float(0) - km, 0] | max | round(1) }}"
+                - if:
+                    - condition: template
+                      value_template: "{{ in_year }}"
+                  then:
+                    - action: utility_meter.calibrate
+                      target:
+                        entity_id: sensor.vwt_drive_energy_year
+                      data:
+                        value: "{{ [states('sensor.vwt_drive_energy_year') | float(0) - e, 0] | max | round(3) }}"
+                    - action: utility_meter.calibrate
+                      target:
+                        entity_id: sensor.vwt_trip_km_year
+                      data:
+                        value: "{{ [states('sensor.vwt_trip_km_year') | float(0) - km, 0] | max | round(1) }}"
+            - action: todo.remove_item
+              target:
+                entity_id: todo.vwt_trip_log
+              data:
+                item: "{{ repeat.item.uid }}"
+      - alias: "Re-determine the latest charging session from the remaining log"
+        if:
+          - condition: template
+            value_template: "{{ charges['todo.vwt_charging_log']['items'] | length > 0 }}"
+        then:
+          - action: todo.get_items
+            target:
+              entity_id: todo.vwt_charging_log
+            data:
+              status: needs_action
+            response_variable: rest_charges
+          - variables:
+              newest_charge: "{{ (rest_charges['todo.vwt_charging_log']['items'] | reverse | list | sort(attribute='due', reverse=true) | first | default({})) }}"
+          - action: input_text.set_value
+            target:
+              entity_id: input_text.vwt_last_charge
+            data:
+              value: "{{ (newest_charge.summary | default('–')).split(' · ')[:3] | join(' · ') }}"
+      - alias: "Re-determine the latest trip from the remaining log"
+        if:
+          - condition: template
+            value_template: "{{ trips['todo.vwt_trip_log']['items'] | length > 0 }}"
+        then:
+          - action: todo.get_items
+            target:
+              entity_id: todo.vwt_trip_log
+            data:
+              status: needs_action
+            response_variable: rest_trips
+          - variables:
+              newest_trip: "{{ (rest_trips['todo.vwt_trip_log']['items'] | reverse | list | sort(attribute='due', reverse=true) | first | default({})) }}"
+              st: "{{ newest_trip.summary | default('') }}"
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.vwt_last_trip_km
+            data:
+              value: "{{ [(st | regex_findall('([0-9]+\\.[0-9]+) km') | first | default('0')) | float(0), 5000] | min }}"
+          - action: input_number.set_value
+            target:
+              entity_id: input_number.vwt_last_trip_consumption
+            data:
+              value: "{{ [(st | regex_findall('([0-9]+\\.[0-9]+) kWh/100km') | first | default('0')) | float(0), 100] | min }}"
+      - action: persistent_notification.create
+        data:
+          notification_id: vwt_correction
+          title: "VWT correction"
+          message: "{{ charges['todo.vwt_charging_log']['items'] | length }} charging sessions and {{ trips['todo.vwt_trip_log']['items'] | length }} trips removed, totals recalculated."
+
+  vwt_delete_entry:
+    alias: "VWT Delete selected entry"
+    icon: mdi:delete-restore
+    description: >-
+      Deletes the entry chosen in input_select.vwt_select_entry from the charging log or the
+      trip log and subtracts its values from the totals and monthly/yearly meters
+      (via script.vwt_apply_correction).
+    mode: single
+    sequence:
+      - variables:
+          choice: "{{ states('input_select.vwt_select_entry') }}"
+          is_charge: "{{ choice.startswith('⚡ ') }}"
+          is_trip: "{{ choice.startswith('🛣 ') }}"
+          todo_list: "{{ 'todo.vwt_charging_log' if is_charge else 'todo.vwt_trip_log' }}"
+          text: "{{ choice[2:] }}"
+      - if:
+          - condition: template
+            value_template: "{{ not (is_charge or is_trip) }}"
+        then:
+          - stop: "No entry selected"
+      - action: todo.get_items
+        target:
+          entity_id: "{{ todo_list }}"
+        data:
+          status: needs_action
+        response_variable: r
+      - variables:
+          matches: "{{ r[todo_list]['items'] | selectattr('summary', 'eq', text) | map(attribute='uid') | list }}"
+      - if:
+          - condition: template
+            value_template: "{{ matches | length == 0 }}"
+        then:
+          - stop: "Entry not found"
+      - action: todo.update_item
+        target:
+          entity_id: "{{ todo_list }}"
+        data:
+          item: "{{ matches[0] }}"
+          status: completed
+      - action: script.vwt_apply_correction
+      - action: input_select.select_first
+        target:
+          entity_id: input_select.vwt_select_entry
