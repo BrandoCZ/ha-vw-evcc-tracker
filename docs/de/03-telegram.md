@@ -80,4 +80,4 @@ Steigt der Akkustand um mindestens 5 %, schickt Home Assistant dir eine Nachrich
 
 ## Weiter
 
-[4. Home Assistant](04-home-assistant.md) *(geplant)*
+[4. Home Assistant](04-home-assistant.md)

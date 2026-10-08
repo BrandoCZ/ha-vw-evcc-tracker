@@ -41,4 +41,4 @@ Under the EU Data Act you can request the data your car generates. In this proje
 
 ## Next
 
-[2. evcc: install and configure](02-evcc.md) *(planned)*
+[2. evcc: install and configure](02-evcc.md)

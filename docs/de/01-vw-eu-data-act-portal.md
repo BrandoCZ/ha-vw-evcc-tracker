@@ -41,4 +41,4 @@ Nach dem EU Data Act kannst du die Daten anfordern, die dein Auto erzeugt. In di
 
 ## Weiter
 
-[2. evcc: Installation und Konfiguration](02-evcc.md) *(geplant)*
+[2. evcc: Installation und Konfiguration](02-evcc.md)

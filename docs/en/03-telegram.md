@@ -80,4 +80,4 @@ When the battery level rises by at least 5 %, Home Assistant sends you a message
 
 ## Next
 
-[4. Home Assistant](04-home-assistant.md) *(planned)*
+[4. Home Assistant](04-home-assistant.md)

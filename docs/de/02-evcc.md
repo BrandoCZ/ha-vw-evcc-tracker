@@ -71,4 +71,4 @@ Das Portal liefert alle 15 Minuten. Häufigeres Abfragen bringt keine neuen Date
 
 ## Weiter
 
-[3. Telegram-Bot](03-telegram.md) *(geplant)* · [4. Home Assistant](04-home-assistant.md) *(geplant)*
+[3. Telegram-Bot](03-telegram.md) · [4. Home Assistant](04-home-assistant.md)

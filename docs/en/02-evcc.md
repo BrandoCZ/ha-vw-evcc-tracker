@@ -71,4 +71,4 @@ The portal delivers every 15 minutes. Polling more often than that brings no new
 
 ## Next
 
-[3. Telegram bot](03-telegram.md) *(planned)* · [4. Home Assistant](04-home-assistant.md) *(planned)*
+[3. Telegram bot](03-telegram.md) · [4. Home Assistant](04-home-assistant.md)
