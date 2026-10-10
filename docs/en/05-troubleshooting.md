@@ -18,6 +18,16 @@ Work through the chain from the car to Home Assistant. The first step that shows
 
 Normal delay: new values arrive roughly **15 to 30 minutes** after the car reported them (delivery interval plus evcc polling interval). There is no push from VW.
 
+## VW-side outages: `406 Not Acceptable`, "No Content Found", odometer stuck
+
+Seen in October 2026. Cause and fix are only partly known.
+
+- **Portal notice.** The portal's start page showed *"Known Issue: Data Download Availability"*: downloaded files may sporadically contain "No Content Found" instead of data. Check the portal for such a notice first. Nothing to fix on your side; wait.
+- **`login failed: 406 Not Acceptable` in the evcc log** (`dsg ERROR`), about once an hour. Values kept updating in between. **(unverified)** whether this is the same VW problem as the notice above.
+- **Restarting evcc or pressing *validate* can make it worse.** While the login is rejected, evcc cannot create the vehicle at startup: battery level, range and odometer then show `0` until a login works again. Do not restart evcc or repeat *validate* in quick succession during such a phase; wait (30–60 minutes or more) and try once.
+- **Odometer older than battery level.** We saw evcc stuck on the old odometer while battery level and range were current, although the data file from the portal contained the new odometer with status `VALID`. Cause **unknown** (possibly an evcc template issue). Until it is solved, record trips manually with `/trip`.
+- **Delivery is event-driven.** A file reflects the car's last report (for example `update_reason = UPDATE_REASON_CLAMP15_OFF`, ignition off), not a fresh reading every 15 minutes. After a drive, new values appear when the car reports them.
+
 ## Battery level or odometer is 0 for a moment
 
 After an evcc restart or a gap in VW's delivery, evcc can briefly report `0`.

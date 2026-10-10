@@ -39,6 +39,22 @@ Under the EU Data Act you can request the data your car generates. In this proje
 - There is no push notification from the portal: evcc polls. The lag therefore is delivery interval (portal) plus polling interval (evcc).
 - Right after a restart of evcc or a gap in delivery, evcc may briefly report `0` for battery level or odometer. Our automations ignore a battery level of 0 % as a starting value.
 
+## What a data file contains
+
+With the cluster *All Data* a file for an ID.7 held about 100 entries (`key`, `dataFieldName`, `value`). It contains no location and no speed. Seen in October 2026:
+
+| Topic | Examples |
+|---|---|
+| Battery, range | `battery_state_report.soc`, `battery_level_HV.value`, `value` (probably range; **unverified**), `energy_contents.*` (unit unclear) |
+| Odometer | `mileage.value`, `mileage.state` |
+| Charging | `charging_state_report.*` (mode, state, scenario), `battery_state_report.charge_power`, `settings.target_soc`, `battery_care_mode.charge_bcam_threshold`, `settings.max_charge_current_ac` |
+| Climate | `climatisation_state`, `climatisation_settings.*` (target temperature, zones, heating), `remaining_climate_time` |
+| Car state | `locked`, `open`, `parking_brake`, `parking_light_*` |
+| Temperatures | `outdoor_temperature`, `min_temperature`, `max_temperature` |
+| Meta | `car_captured_time`, `timestamp`, `update_reason`, `report_type`, `error_code` |
+
+evcc passes only battery level, range, odometer and charge limit on to Home Assistant. The other fields are not available there. The files carry the VIN and a user ID: never post them.
+
 ## Next
 
 [2. evcc: install and configure](02-evcc.md)

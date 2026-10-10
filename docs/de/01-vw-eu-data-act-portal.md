@@ -39,6 +39,22 @@ Nach dem EU Data Act kannst du die Daten anfordern, die dein Auto erzeugt. In di
 - Das Portal sendet keine Push-Benachrichtigung: evcc fragt ab. Die Verzögerung setzt sich aus Lieferintervall (Portal) und Abrufintervall (evcc) zusammen.
 - Direkt nach einem evcc-Neustart oder bei einer Lieferlücke kann evcc kurz `0` für Akku- oder Kilometerstand melden. Unsere Automationen ignorieren einen Akkustand von 0 % als Startwert.
 
+## Was eine Datendatei enthält
+
+Mit dem Cluster *All Data* enthielt eine Datei für einen ID.7 etwa 100 Einträge (`key`, `dataFieldName`, `value`). Sie enthält keinen Standort und keine Geschwindigkeit. Gesehen im Oktober 2026:
+
+| Thema | Beispiele |
+|---|---|
+| Akku, Reichweite | `battery_state_report.soc`, `battery_level_HV.value`, `value` (vermutlich Reichweite; **ungeprüft**), `energy_contents.*` (Einheit unklar) |
+| Kilometerstand | `mileage.value`, `mileage.state` |
+| Laden | `charging_state_report.*` (Modus, Zustand, Szenario), `battery_state_report.charge_power`, `settings.target_soc`, `battery_care_mode.charge_bcam_threshold`, `settings.max_charge_current_ac` |
+| Klima | `climatisation_state`, `climatisation_settings.*` (Zieltemperatur, Zonen, Heizung), `remaining_climate_time` |
+| Fahrzeugzustand | `locked`, `open`, `parking_brake`, `parking_light_*` |
+| Temperaturen | `outdoor_temperature`, `min_temperature`, `max_temperature` |
+| Meta | `car_captured_time`, `timestamp`, `update_reason`, `report_type`, `error_code` |
+
+evcc gibt nur Akkustand, Reichweite, Kilometerstand und Ladelimit an Home Assistant weiter. Die übrigen Felder stehen dort nicht zur Verfügung. Die Dateien enthalten die Fahrgestellnummer und eine Benutzerkennung: niemals posten.
+
 ## Weiter
 
 [2. evcc: Installation und Konfiguration](02-evcc.md)

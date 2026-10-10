@@ -18,6 +18,16 @@ Geh die Kette vom Auto bis zu Home Assistant durch. Der erste Schritt, der alte 
 
 Normale Verzögerung: Neue Werte kommen etwa **15 bis 30 Minuten** nach der Meldung des Autos an (Lieferintervall plus Abrufintervall von evcc). VW sendet nichts per Push.
 
+## Störungen auf VW-Seite: `406 Not Acceptable`, „No Content Found“, Kilometerstand hängt
+
+Gesehen im Oktober 2026. Ursache und Lösung sind nur teilweise bekannt.
+
+- **Hinweis im Portal.** Die Startseite des Portals zeigte *„Known Issue: Data Download Availability“*: Heruntergeladene Dateien können sporadisch „No Content Found“ statt Daten enthalten. Schau zuerst im Portal nach so einem Hinweis. Auf deiner Seite gibt es nichts zu beheben; abwarten.
+- **`login failed: 406 Not Acceptable` im evcc-Protokoll** (`dsg ERROR`), etwa einmal pro Stunde. Zwischendurch aktualisierten sich die Werte weiter. **(Ungeprüft)**, ob das dasselbe VW-Problem wie der Hinweis oben ist.
+- **Ein Neustart von evcc oder *validate* kann es verschlimmern.** Solange der Login abgelehnt wird, kann evcc das Fahrzeug beim Start nicht anlegen: Akkustand, Reichweite und Kilometerstand zeigen dann `0`, bis ein Login wieder klappt. In so einer Phase evcc nicht neu starten und *validate* nicht mehrfach hintereinander drücken; 30–60 Minuten oder länger warten und es einmal versuchen.
+- **Kilometerstand älter als Akkustand.** Bei uns hing evcc auf dem alten Kilometerstand, während Akkustand und Reichweite aktuell waren, obwohl die Datei aus dem Portal den neuen Kilometerstand mit Status `VALID` enthielt. Ursache **unbekannt** (möglicherweise ein Problem der evcc-Vorlage). Bis es geklärt ist, Strecken von Hand mit `/trip` erfassen.
+- **Die Lieferung ist ereignisgesteuert.** Eine Datei zeigt die letzte Meldung des Autos (z. B. `update_reason = UPDATE_REASON_CLAMP15_OFF`, Zündung aus), nicht alle 15 Minuten eine frische Messung. Nach einer Fahrt erscheinen neue Werte, wenn das Auto sie meldet.
+
 ## Akku- oder Kilometerstand ist kurz 0
 
 Nach einem evcc-Neustart oder einer Lieferlücke von VW kann evcc kurz `0` melden.
